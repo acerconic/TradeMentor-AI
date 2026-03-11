@@ -1,0 +1,30 @@
+{
+  "name": "tradementor-backend",
+  "version": "1.0.0",
+  "description": "TradeMentor-AI Backend — Fastify + pg",
+  "main": "src/server.ts",
+  "scripts": {
+    "dev": "ts-node --transpile-only src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "db:init": "node -e \"require('dotenv').config(); const {Pool}=require('pg'); const fs=require('fs'); const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}}); p.query(fs.readFileSync('../database/init.sql','utf8')).then(()=>{console.log('DB initialized!');p.end()}).catch(e=>{console.error(e);p.end();})\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/jwt": "^10.0.0",
+    "argon2": "^0.44.0",
+    "dotenv": "^17.3.1",
+    "fastify": "^5.8.2",
+    "pg": "^8.16.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "@types/pg": "^8.15.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,19 @@
+# ── Node.js ───────────────────────────────────────────────
+node_modules/
+dist/
+*.log
+
+# ── Environment ───────────────────────────────────────────
+.env
+.env.local
+.env.production
+
+# ── Temp ──────────────────────────────────────────────────
+*.bak
+out.txt
+ts.log
+run.log
+seed.log
+push.log
+err.txt
+prisma-error.log

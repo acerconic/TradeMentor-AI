@@ -1,0 +1,27 @@
+# ── Build artifacts ───────────────────────────────────────
+dist/
+*.log
+
+# ── Environment ───────────────────────────────────────────
+.env
+.env.local
+.env.production
+backend/.env
+
+# ── Dependencies ──────────────────────────────────────────
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# ── OS ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Temp / debug ──────────────────────────────────────────
+*.bak
+out.txt
+ts.log
+run.log
+seed.log
+push.log
+err.txt
