@@ -38,62 +38,117 @@ export default function StudentDashboard() {
     return (
         <div className="min-h-screen bg-slate-950 text-white flex flex-col">
             {/* Header */}
-            <nav className="glass sticky top-0 z-50 px-8 py-4 flex items-center justify-between border-b border-slate-800">
-                <div className="flex items-center space-x-2 text-2xl font-bold">
-                    <Zap className="text-primary fill-primary" />
-                    <span>TradeMentor</span>
+            <nav className="glass sticky top-0 z-[100] px-8 py-3 flex items-center justify-between border-b border-white/5">
+                <div className="flex items-center space-x-3 group cursor-pointer">
+                    <div className="relative">
+                        <div className="absolute -inset-1 bg-gradient-to-r from-primary to-emerald-500 rounded-lg blur opacity-25 group-hover:opacity-75 transition duration-1000 group-hover:duration-200"></div>
+                        <div className="relative bg-slate-900 p-1.5 rounded-lg border border-white/10">
+                            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-white">
+                                <path d="M20 5L5 15V25L20 35L35 25V15L20 5Z" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M20 12V28M13 18L20 25L27 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                        </div>
+                    </div>
+                    <span className="text-xl font-bold tracking-tighter uppercase">
+                        Trade<span className="text-primary italic">Mentor</span> AI
+                    </span>
                 </div>
 
-                <div className="flex items-center space-x-6">
-                    <div className="hidden md:flex items-center space-x-1 px-4 py-2 bg-slate-900/50 rounded-full border border-slate-800 text-sm text-slate-400">
-                        <Search size={16} className="mr-2" />
-                        <span>Search knowledge base...</span>
+                <div className="flex items-center space-x-8">
+                    <div className="hidden lg:flex items-center space-x-6 text-sm font-medium text-slate-400">
+                        <a href="#" className="hover:text-white transition-colors">Academy</a>
+                        <a href="#" className="hover:text-white transition-colors">Signals</a>
                     </div>
 
-                    <div className="flex items-center space-x-4">
-                        <div className="text-right">
-                            <p className="text-sm font-bold">{user.name}</p>
-                            <p className="text-[10px] text-emerald-500 uppercase tracking-widest">{user.role}</p>
+                    <div className="flex items-center space-x-4 border-l border-white/10 pl-6">
+                        {/* Language Switcher */}
+                        <div className="relative group/lang px-3 py-1.5 bg-slate-900 rounded-lg border border-white/5 flex items-center space-x-2 text-xs font-bold cursor-pointer hover:bg-slate-800 transition-all">
+                            <span className="text-slate-400">RU</span>
+                            <div className="hidden group-hover/lang:block absolute top-full right-0 mt-2 w-24 glass-card p-1 z-50 overflow-hidden">
+                                <div className="px-3 py-2 hover:bg-white/5 rounded text-left">EN</div>
+                                <div className="px-3 py-2 hover:bg-white/5 rounded text-left">UZ</div>
+                            </div>
                         </div>
-                        <button
-                            onClick={handleLogout}
-                            className="p-2 text-slate-400 hover:text-white transition-colors"
-                            title="Logout"
-                        >
-                            <LogOut size={20} />
-                        </button>
+
+                        <div className="flex items-center space-x-3 px-3 py-1 bg-slate-900 rounded-xl border border-white/5">
+                            <div className="w-8 h-8 rounded-lg bg-primary/20 text-primary flex items-center justify-center font-bold text-xs">
+                                {user.name.charAt(0)}
+                            </div>
+                            <div className="hidden sm:block">
+                                <p className="text-xs font-bold leading-tight">{user.name}</p>
+                                <p className="text-[9px] text-slate-500 uppercase tracking-tighter">Student</p>
+                            </div>
+                            <button
+                                onClick={handleLogout}
+                                className="p-1.5 text-slate-500 hover:text-red-400 transition-colors ml-2"
+                            >
+                                <LogOut size={16} />
+                            </button>
+                        </div>
                     </div>
                 </div>
             </nav>
 
             <main className="flex-1 p-8 max-w-7xl mx-auto w-full space-y-12">
-                {/* Welcome Banner */}
-                <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-blue-600 to-indigo-900 p-10 shadow-2xl shadow-blue-500/10">
-                    <div className="absolute top-0 right-0 w-1/2 h-full bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 pointer-events-none" />
-                    <div className="relative z-10 space-y-6 max-w-2xl">
-                        <div className="inline-flex items-center px-3 py-1 bg-white/10 backdrop-blur-md rounded-full text-xs font-bold text-white border border-white/20 uppercase tracking-widest">
-                            Current Level: Apprentice
-                        </div>
-                        <h1 className="text-5xl font-bold leading-tight">
-                            Unlock Your Edge in <br />
-                            <span className="text-blue-300 italic">Financial Markets.</span>
-                        </h1>
-                        <p className="text-blue-100/80 text-lg">
-                            Your AI mentor is ready to analyze your trades and provide personalized market insights.
-                        </p>
-                        <div className="flex gap-4 pt-4">
-                            <button
-                                onClick={() => router.push('/ai')}
-                                className="flex items-center px-8 py-4 bg-white text-blue-900 font-bold rounded-2xl hover:bg-blue-50 transition-all shadow-xl shadow-blue-950/20 active:scale-95"
-                            >
-                                <MessageSquare className="mr-2" />
-                                Ask AI Mentor
-                            </button>
-                            <button className="flex items-center px-8 py-4 bg-transparent border-2 border-white/30 text-white font-bold rounded-2xl hover:bg-white/10 transition-all active:scale-95">
-                                <BookOpen className="mr-2" />
-                                Continue Learning
-                            </button>
-                        </div>
+                {/* Welcome Section */}
+                <section className="relative px-2">
+                    <div className="space-y-2">
+                        <motion.h2
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            className="text-4xl font-bold tracking-tight text-white"
+                        >
+                            Welcome back, <span className="text-gradient font-extrabold">{user.name}</span>! 👋
+                        </motion.h2>
+                        <p className="text-slate-500 text-lg font-medium">Ready to sharpen your trading edge today?</p>
+                    </div>
+
+                    <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="group relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-blue-600 to-indigo-700 p-8 shadow-2xl shadow-blue-500/20"
+                        >
+                            <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-20 -mt-20 group-hover:scale-125 transition-transform duration-1000" />
+                            <div className="relative z-10 h-full flex flex-col justify-between">
+                                <div className="space-y-4">
+                                    <span className="px-4 py-1.5 bg-white/10 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-widest text-white border border-white/20">
+                                        AI ANALYST ACTIVE
+                                    </span>
+                                    <h3 className="text-3xl font-bold leading-tight">Master Market <br /> Structure with AI</h3>
+                                    <p className="text-blue-100/70 text-sm max-w-[240px]">Get instant feedback on your charts and psychology.</p>
+                                </div>
+                                <button
+                                    onClick={() => router.push('/ai')}
+                                    className="mt-8 flex items-center justify-center w-full py-4 bg-white text-blue-900 font-black text-sm uppercase rounded-2xl hover:bg-blue-50 transition-all shadow-xl shadow-blue-950/20 active:scale-95"
+                                >
+                                    <MessageSquare className="mr-2" size={18} />
+                                    Consult Mentor
+                                </button>
+                            </div>
+                        </motion.div>
+
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.1 }}
+                            className="group relative overflow-hidden rounded-[2.5rem] bg-slate-900 border border-white/5 p-8"
+                        >
+                            <div className="absolute bottom-0 right-0 w-48 h-48 bg-emerald-500/5 rounded-full blur-3xl -mr-10 -mb-10" />
+                            <div className="relative z-10 h-full flex flex-col justify-between">
+                                <div className="space-y-4">
+                                    <span className="px-4 py-1.5 bg-emerald-500/10 rounded-full text-[10px] font-black uppercase tracking-widest text-emerald-500 border border-emerald-500/20">
+                                        QUICK START
+                                    </span>
+                                    <h3 className="text-3xl font-bold leading-tight">Your Progress <br /> Academy</h3>
+                                    <p className="text-slate-500 text-sm max-w-[240px]">Resume your path to professional fund management.</p>
+                                </div>
+                                <button className="mt-8 flex items-center justify-center w-full py-4 bg-slate-800 text-white font-black text-sm uppercase rounded-2xl hover:bg-slate-700 transition-all border border-white/5 active:scale-95">
+                                    <BookOpen className="mr-2" size={18} />
+                                    View Modules
+                                </button>
+                            </div>
+                        </motion.div>
                     </div>
                 </section>
 

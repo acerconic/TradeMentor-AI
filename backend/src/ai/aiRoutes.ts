@@ -36,13 +36,19 @@ Rules:
                         'X-Title': 'TradeMentor AI',
                     },
                     body: JSON.stringify({
-                        model: 'meta-llama/llama-3.1-405b-instruct:free', // Use a high-quality model
+                        model: 'meta-llama/llama-3.1-405b-instruct:free',
                         messages: [
                             { role: 'system', content: systemPrompt },
                             { role: 'user', content: message }
                         ],
                     }),
                 })
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    server.log.error(`OpenRouter Error: ${response.status} - ${errorText}`);
+                    throw new Error(`AI Gateway responded with ${response.status}`);
+                }
 
                 const data = await response.json()
                 const aiMessage = data.choices?.[0]?.message?.content || 'I apologize, but I am unable to process your request at this moment.'
@@ -51,21 +57,12 @@ Rules:
                 await query(
                     'INSERT INTO ai_requests (user_id, type, message, response, provider) VALUES ($1, $2, $3, $4, $5)',
                     [userId, 'chat', message, aiMessage, 'openrouter']
-                )
-
-                // Audit log
-                await query(
-                    'INSERT INTO audit_logs (user_id, action, details) VALUES ($1, $2, $3)',
-                    [userId, 'AI_REQUEST', JSON.stringify({ prompt_length: message.length })]
-                )
+                ).catch(e => server.log.error('DB Log Error:', e));
 
                 return { response: aiMessage }
-            } catch (err) {
-                if (err instanceof z.ZodError) {
-                    return reply.status(400).send({ error: 'Message is required' })
-                }
-                server.log.error(err)
-                return reply.status(500).send({ error: 'AI processing failed' })
+            } catch (err: any) {
+                server.log.error('AI Route Error:', err.message);
+                return reply.status(500).send({ error: 'AI processing failed', details: err.message })
             }
         }
     )
