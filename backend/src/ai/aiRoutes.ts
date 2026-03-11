@@ -22,8 +22,8 @@ export default async function aiRoutes(server: FastifyInstance) {
                 try {
                     const { getLibraryContext } = await import('./libraryService');
                     libraryContext = await getLibraryContext(message);
-                } catch (e) {
-                    server.log.error('Library Service Error:', e);
+                } catch (e: any) {
+                    server.log.error(e, 'Library Service Error');
                 }
 
                 // System prompt for TradeMentor AI
