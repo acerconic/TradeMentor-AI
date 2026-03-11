@@ -41,8 +41,9 @@ Rules:
 
                 // Try Multiple models (Fallback system)
                 const models = [
-                    'meta-llama/llama-3.1-405b-instruct:free',
-                    'meta-llama/llama-3.1-70b-instruct:free',
+                    'meta-llama/llama-3.3-70b-instruct',
+                    'meta-llama/llama-3.1-70b-instruct',
+                    'meta-llama/llama-3.1-8b-instruct:free',
                     'google/gemma-2-9b-it:free'
                 ];
 
