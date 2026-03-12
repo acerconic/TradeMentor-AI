@@ -8,20 +8,27 @@ import {
     TrendingUp,
     Award,
     Play,
-    LogOut,
-    Loader2,
-    ChevronRight,
+    Radio,
+    Settings,
+    User,
+    Languages,
+    LogOut as LogOutIcon,
+    ChevronDown,
     Zap,
-    BarChart2,
     Brain,
-    Radio
+    ChevronRight,
+    Loader2,
+    BarChart2
 } from 'lucide-react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { useLanguage } from '@/context/LanguageContext';
 
 export default function StudentDashboard() {
+    const { t, language, setLanguage } = useLanguage();
     const [user, setUser] = useState<any>(null);
     const [courses, setCourses] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -83,53 +90,96 @@ export default function StudentDashboard() {
             <nav className="sticky top-0 z-[100] px-6 md:px-10 py-4 flex items-center justify-between"
                 style={{ background: 'rgba(11,18,32,0.85)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(123,63,228,0.12)' }}>
                 <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl flex items-center justify-center"
-                        style={{ background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)', boxShadow: '0 0 20px rgba(123,63,228,0.4)' }}>
-                        <Zap size={16} fill="white" className="text-white" />
-                    </div>
-                    <span className="text-lg font-black" style={{ fontFamily: 'Outfit, sans-serif', letterSpacing: '-0.03em' }}>
-                        Trade<span style={{ background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Mentor</span>
-                        <span className="text-white"> AI</span>
-                    </span>
+                    <Image
+                        src="/logo.png"
+                        alt="TradeMentor AI"
+                        width={150}
+                        height={40}
+                        className="object-contain cursor-pointer"
+                        priority
+                        onClick={() => router.push('/dashboard')}
+                    />
                 </div>
 
                 <div className="hidden md:flex items-center gap-1">
                     {[
-                        { label: 'Academy', active: true, href: '/dashboard' },
-                        { label: 'Progress', active: false },
-                        { label: 'Signals', active: false, soon: true },
+                        { label: t('common.academy'), active: true, href: '/dashboard' },
+                        { label: t('common.progress'), active: false },
+                        { label: t('common.signals'), active: false, soon: true },
                     ].map(item => (
                         <button
                             key={item.label}
                             onClick={() => item.href ? router.push(item.href) : showToast(`${item.label} — coming soon!`)}
                             className={cn(
-                                "px-4 py-2 rounded-xl text-sm font-medium transition-all",
-                                item.active ? "text-white" : "hover:text-white"
+                                "px-4 py-2 rounded-xl text-sm font-medium transition-all text-slate-400 hover:text-white"
                             )}
                             style={item.active ? {
                                 background: 'linear-gradient(135deg, rgba(123,63,228,0.2), rgba(42,169,255,0.1))',
                                 color: '#A87BFF',
                                 border: '1px solid rgba(123,63,228,0.3)'
-                            } : { color: '#7B8CA6' }}
+                            } : {}}
                         >
                             {item.label}
-                            {item.soon && <span className="ml-1.5 text-[9px] font-black badge-amber px-1 py-0.5 rounded-full">SOON</span>}
+                            {item.soon && <span className="ml-1.5 text-[9px] font-black badge-amber px-1 py-0.5 rounded-full">{t('common.soon')}</span>}
                         </button>
                     ))}
                 </div>
 
                 <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl cursor-pointer"
-                        style={{ background: '#111A2F', border: '1px solid rgba(123,63,228,0.15)' }}>
-                        <div className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold text-white"
-                            style={{ background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)' }}>
-                            {firstName.charAt(0)}
-                        </div>
-                        <span className="hidden sm:block text-sm font-semibold text-white">{firstName}</span>
+                    {/* Language Switcher */}
+                    <div className="flex items-center bg-[#111A2F] rounded-xl p-1 border border-white/5">
+                        <button
+                            onClick={() => setLanguage('RU')}
+                            className={cn(
+                                "px-2 py-1 rounded-lg text-[10px] font-bold transition-all",
+                                language === 'RU' ? "bg-purple-600 text-white" : "text-slate-500 hover:text-slate-300"
+                            )}
+                        >RU</button>
+                        <button
+                            onClick={() => setLanguage('UZ')}
+                            className={cn(
+                                "px-2 py-1 rounded-lg text-[10px] font-bold transition-all",
+                                language === 'UZ' ? "bg-purple-600 text-white" : "text-slate-500 hover:text-slate-300"
+                            )}
+                        >UZ</button>
                     </div>
-                    <button onClick={handleLogout} className="p-2 rounded-xl text-red-400 hover:bg-red-400/10 transition-colors">
-                        <LogOut size={18} />
-                    </button>
+
+                    {/* Profile Dropdown */}
+                    <div className="relative group">
+                        <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl cursor-pointer"
+                            style={{ background: '#111A2F', border: '1px solid rgba(123,63,228,0.15)' }}>
+                            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold text-white"
+                                style={{ background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)' }}>
+                                {firstName.charAt(0)}
+                            </div>
+                            <span className="hidden sm:block text-sm font-semibold text-white">{firstName}</span>
+                            <ChevronDown size={14} className="text-slate-500 group-hover:text-white transition-colors" />
+                        </div>
+
+                        {/* Dropdown Menu */}
+                        <div className="absolute right-0 mt-2 w-48 rounded-2xl p-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[110]"
+                            style={{ background: '#111A2F', border: '1px solid rgba(123,63,228,0.2)', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}>
+                            <button
+                                onClick={() => router.push('/dashboard/profile')}
+                                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all text-left"
+                            >
+                                <User size={16} /> {t('common.profile')}
+                            </button>
+                            <button
+                                onClick={() => router.push('/dashboard/settings')}
+                                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all text-left"
+                            >
+                                <Settings size={16} /> {t('common.settings')}
+                            </button>
+                            <div className="h-px bg-white/5 my-1" />
+                            <button
+                                onClick={handleLogout}
+                                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-red-400 hover:bg-red-400/10 transition-all text-left"
+                            >
+                                <LogOutIcon size={16} /> {t('common.logout')}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </nav>
 
@@ -140,16 +190,16 @@ export default function StudentDashboard() {
                 <section className="mb-12">
                     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-10">
                         <p className="text-sm font-semibold mb-2" style={{ color: '#7B3FE4' }}>
-                            👋 Welcome back
+                            👋 {t('common.welcomeBack')}
                         </p>
                         <h1 className="text-4xl md:text-5xl font-black leading-tight" style={{ fontFamily: 'Outfit, sans-serif', letterSpacing: '-0.03em' }}>
-                            Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'},{' '}
+                            {new Date().getHours() < 12 ? t('common.goodMorning') : new Date().getHours() < 18 ? t('common.goodAfternoon') : t('common.goodEvening')},{' '}
                             <span style={{ background: 'linear-gradient(135deg, #7B3FE4 0%, #2AA9FF 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                                 {firstName}
                             </span>
                         </h1>
                         <p className="mt-3 text-lg" style={{ color: '#7B8CA6' }}>
-                            Continue your path to professional trading mastery.
+                            {t('common.aiGuidance')}
                         </p>
                     </motion.div>
 
@@ -178,18 +228,18 @@ export default function StudentDashboard() {
                                     <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(168,123,255,0.2)' }}>
                                         <Brain size={18} style={{ color: '#A87BFF' }} />
                                     </div>
-                                    <span className="text-xs font-black uppercase tracking-widest" style={{ color: '#A87BFF' }}>AI MENTOR ACTIVE</span>
+                                    <span className="text-xs font-black uppercase tracking-widest" style={{ color: '#A87BFF' }}>{t('common.activeMentor')}</span>
                                 </div>
                                 <h3 className="text-2xl font-bold text-white leading-tight mb-3">
-                                    Master Markets<br />with AI Guidance
+                                    {t('common.masterMarkets')}
                                 </h3>
                                 <p className="text-sm mb-8" style={{ color: 'rgba(168,123,255,0.7)' }}>
-                                    Get instant feedback on charts, market structure & trading psychology.
+                                    {t('common.aiGuidance')}
                                 </p>
                                 <button className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold text-white transition-all"
                                     style={{ background: 'linear-gradient(135deg, #7B3FE4, #5B2DB0)', boxShadow: '0 4px 20px rgba(123,63,228,0.4)' }}>
                                     <MessageSquare size={16} />
-                                    Consult AI Mentor
+                                    {t('common.consultAI')}
                                     <ChevronRight size={16} />
                                 </button>
                             </div>
@@ -211,10 +261,10 @@ export default function StudentDashboard() {
                                         <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(42,169,255,0.15)' }}>
                                             <TrendingUp size={18} style={{ color: '#2AA9FF' }} />
                                         </div>
-                                        <span className="text-xs font-black uppercase tracking-widest" style={{ color: '#2AA9FF' }}>YOUR PROGRESS</span>
+                                        <span className="text-xs font-black uppercase tracking-widest" style={{ color: '#2AA9FF' }}>{t('common.yourProgress')}</span>
                                     </div>
                                     <h3 className="text-2xl font-bold text-white leading-tight mb-5">
-                                        Skill Matrix
+                                        {t('common.skillMatrix')}
                                     </h3>
                                     <div className="space-y-4">
                                         {[
@@ -247,9 +297,9 @@ export default function StudentDashboard() {
                 {/* Quick Stats */}
                 <section className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12">
                     {[
-                        { icon: BookOpen, label: 'Courses', value: courses.length, color: '#7B3FE4', sub: 'available' },
-                        { icon: Play, label: 'In Progress', value: 0, color: '#2AA9FF', sub: 'lessons' },
-                        { icon: Award, label: 'Completed', value: 0, color: '#10B981', sub: 'lessons' },
+                        { icon: BookOpen, label: t('common.courses'), value: courses.length, color: '#7B3FE4', sub: 'available' },
+                        { icon: Play, label: t('common.inProgress'), value: 0, color: '#2AA9FF', sub: t('common.lessons') },
+                        { icon: Award, label: t('common.completed'), value: 0, color: '#10B981', sub: t('common.lessons') },
                         { icon: Brain, label: 'AI Sessions', value: '∞', color: '#F59E0B', sub: 'unlimited' },
                     ].map(({ icon: Icon, label, value, color, sub }) => (
                         <motion.div
@@ -273,9 +323,9 @@ export default function StudentDashboard() {
                     <div className="flex items-center justify-between mb-6">
                         <h2 className="text-xl font-bold text-white flex items-center gap-2">
                             <BookOpen size={20} style={{ color: '#7B3FE4' }} />
-                            Available Courses
+                            {t('common.availableCourses')}
                         </h2>
-                        <span className="text-xs px-3 py-1 rounded-full badge-purple font-bold">{courses.length} courses</span>
+                        <span className="text-xs px-3 py-1 rounded-full badge-purple font-bold">{courses.length} {t('common.courses')}</span>
                     </div>
 
                     {isLoading ? (
@@ -294,8 +344,7 @@ export default function StudentDashboard() {
                                 style={{ background: 'rgba(123,63,228,0.1)', boxShadow: '0 0 30px rgba(123,63,228,0.15)' }}>
                                 <BookOpen size={32} style={{ color: '#7B3FE4' }} />
                             </div>
-                            <h3 className="text-xl font-bold text-white mb-2">Нет доступных курсов</h3>
-                            <p className="text-sm" style={{ color: '#7B8CA6' }}>Курсы пока не добавлены администратором.</p>
+                            <h3 className="text-xl font-bold text-white mb-2">{t('common.noCourses')}</h3>
                             <p className="text-sm mt-1" style={{ color: '#3D4D63' }}>Пока что ты можешь использовать AI Mentor!</p>
                             <button
                                 onClick={() => router.push('/ai')}
@@ -303,7 +352,7 @@ export default function StudentDashboard() {
                                 style={{ background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)', boxShadow: '0 4px 20px rgba(123,63,228,0.35)' }}
                             >
                                 <Brain size={16} className="inline-block mr-2" />
-                                Open AI Mentor
+                                {t('common.askAI')}
                             </button>
                         </motion.div>
                     ) : (
@@ -342,11 +391,11 @@ export default function StudentDashboard() {
                                         </p>
                                         <div className="flex items-center justify-between">
                                             <div className="text-xs" style={{ color: '#3D4D63' }}>
-                                                {course.lessons_count || 0} lessons
+                                                {course.lessons_count || 0} {t('common.lessons')}
                                             </div>
                                             <div className="flex items-center gap-1.5 text-xs font-bold" style={{ color: '#7B3FE4' }}>
                                                 <Play size={12} fill="currentColor" />
-                                                Start
+                                                {t('common.start')}
                                                 <ChevronRight size={12} />
                                             </div>
                                         </div>
@@ -373,8 +422,8 @@ export default function StudentDashboard() {
                 >
                     <Brain size={26} />
                     <div className="absolute right-full mr-4 px-3 py-2 rounded-xl text-sm font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition-all pointer-events-none"
-                        style={{ background: '#111A2F', border: '1px solid rgba(123,63,228,0.3)' }}>
-                        Ask AI Mentor
+                        style={{ background: '#111A2F', border: '1px solid rgba(123,63,228,0.2)' }}>
+                        {t('common.askAI')}
                     </div>
                     {/* Pulse ring */}
                     <div className="absolute inset-0 rounded-full animate-pulse-ring" style={{ border: '2px solid rgba(123,63,228,0.4)' }} />

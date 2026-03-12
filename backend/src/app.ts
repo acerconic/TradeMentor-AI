@@ -6,7 +6,7 @@ import authRoutes from './auth/authRoutes'
 import adminRoutes from './admin/adminRoutes'
 import aiRoutes from './ai/aiRoutes'
 import multipart from '@fastify/multipart'
-import { publicCourseRoutes, adminCourseRoutes } from './courses/courseRoutes'
+import { publicCourseRoutes, adminCourseRoutes, ensureSchema } from './courses/courseRoutes'
 
 export const buildServer = async (): Promise<FastifyInstance> => {
     const server = fastify({ logger: true })
@@ -37,6 +37,15 @@ export const buildServer = async (): Promise<FastifyInstance> => {
 
     // ── Health Check ─────────────────────────────────────────
     server.get('/health', async () => ({ status: 'ok' }))
+
+    // ── Self-healing schema migration (runs on every startup) ─
+    server.addHook('onReady', async () => {
+        try {
+            await ensureSchema(server)
+        } catch (e: any) {
+            server.log.error(`[Schema] ensureSchema failed: ${e.message}`)
+        }
+    })
 
     return server
 }

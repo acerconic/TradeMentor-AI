@@ -4,7 +4,12 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "TradeMentor AI | Professional Trading Academy",
   description: "Specialized educational platform for SMC/ICT traders with AI-powered mentorship.",
+  icons: {
+    icon: '/favicon-logo.png',
+  },
 };
+
+import { LanguageProvider } from "@/context/LanguageContext";
 
 export default function RootLayout({
   children,
@@ -14,7 +19,9 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="antialiased">
-        {children}
+        <LanguageProvider>
+          {children}
+        </LanguageProvider>
       </body>
     </html>
   );

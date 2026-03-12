@@ -40,19 +40,27 @@ interface IngestionResult {
 async function extractPdfText(filePath: string): Promise<string> {
     const buffer = fs.readFileSync(filePath);
 
-    // Dynamically import pdf-parse to handle ESM/CJS differences
+    // Dynamically require pdf-parse (handles both ESM and CJS)
     let pdfParse: any;
     try {
-        const mod = await import('pdf-parse');
-        pdfParse = typeof mod === 'function' ? mod : mod.default;
-    } catch {
-        throw new Error('pdf-parse not available');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        pdfParse = require('pdf-parse');
+        if (typeof pdfParse !== 'function' && typeof pdfParse.default === 'function') {
+            pdfParse = pdfParse.default;
+        }
+    } catch (e1) {
+        try {
+            const mod = await import('pdf-parse');
+            pdfParse = typeof mod === 'function' ? mod : mod.default;
+        } catch {
+            throw new Error('pdf-parse module not found. Run: npm install pdf-parse');
+        }
     }
 
     const data = await pdfParse(buffer);
-    const text = data.text || '';
-    // Limit to ~4000 chars for AI classification (We don't need full text)
-    return text.substring(0, 4000).trim();
+    const text = (data.text || '').replace(/\s+/g, ' ').trim();
+    // Limit to ~4000 chars for AI classification
+    return text.substring(0, 4000);
 }
 
 // ── AI Classification ────────────────────────────────────────
@@ -181,42 +189,45 @@ async function upsertCourseModuleLesson(
     if (existingModule.rows.length > 0) {
         moduleId = existingModule.rows[0].id;
     } else {
-        // Get current max position
+        // Get current max sort_order
         const maxPos = await query(
-            `SELECT COALESCE(MAX(position), 0) as max_pos FROM modules WHERE course_id = $1`,
+            `SELECT COALESCE(MAX(sort_order), 0) as max_pos FROM modules WHERE course_id = $1`,
             [courseId]
         );
         const newPos = (parseInt(maxPos.rows[0].max_pos) || 0) + 1;
 
         const newModule = await query(
-            `INSERT INTO modules (id, course_id, title, position, sort_order, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $4, NOW(), NOW()) RETURNING id`,
+            `INSERT INTO modules (id, course_id, title, sort_order, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id`,
             [crypto.randomUUID(), courseId, classification.module_title, newPos]
         );
         moduleId = newModule.rows[0].id;
     }
 
-    // 3. Create lesson (always new per PDF)
     const maxLessonPos = await query(
-        `SELECT COALESCE(MAX(position), 0) as max_pos FROM lessons WHERE module_id = $1`,
+        `SELECT COALESCE(MAX(sort_order), 0) as max_pos FROM lessons WHERE module_id = $1`,
         [moduleId]
     );
     const newLessonPos = (parseInt(maxLessonPos.rows[0].max_pos) || 0) + 1;
 
     const newLesson = await query(
-        `INSERT INTO lessons (id, module_id, title, content, summary, pdf_path, position, sort_order, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $7, NOW(), NOW()) RETURNING id`,
+        `INSERT INTO lessons (id, module_id, title, content, sort_order, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW()) RETURNING id`,
         [
             crypto.randomUUID(),
             moduleId,
             classification.lesson_title,
-            classification.summary,  // content = summary for now
             classification.summary,
-            pdfPath,
             newLessonPos
         ]
     );
     const lessonId = newLesson.rows[0].id;
+
+    // Update lesson with summary and pdf_path (these columns added by self-healing migration)
+    await query(
+        `UPDATE lessons SET summary = $1, pdf_path = $2 WHERE id = $3`,
+        [classification.summary, pdfPath, lessonId]
+    ).catch(() => {/* columns may not exist yet — ignore */ });
 
     return { course_id: courseId, module_id: moduleId, lesson_id: lessonId };
 }
@@ -240,10 +251,17 @@ export async function ingestPdf(
     try {
         // 1. Extract PDF text
         if (log) log.info(`[Ingestion] Extracting text from: ${originalFileName}`);
-        const extractedText = await extractPdfText(filePath);
+        let extractedText = '';
+        try {
+            extractedText = await extractPdfText(filePath);
+        } catch (pdfErr: any) {
+            if (log) log.warn(`[Ingestion] pdf-parse failed: ${pdfErr.message} — using filename fallback`);
+        }
 
-        if (!extractedText || extractedText.length < 50) {
-            throw new Error('PDF appears to be empty or contains no readable text (possibly image-based PDF)');
+        // If PDF has no extractable text (image-based), use fallback classification
+        if (!extractedText || extractedText.length < 20) {
+            if (log) log.warn(`[Ingestion] PDF has no/little text, using filename fallback: ${originalFileName}`);
+            extractedText = `Trading material: ${originalFileName.replace('.pdf', '')}`;
         }
 
         // 2. AI Classification
@@ -305,12 +323,28 @@ export async function scanLibrary(log?: FastifyBaseLogger): Promise<{
     failed: number;
     results: IngestionResult[];
 }> {
-    const libraryDir = path.resolve(process.cwd(), '..', 'data', 'library');
+    // Try multiple possible paths (works locally and on Render)
+    const possiblePaths = [
+        path.resolve(process.cwd(), '..', 'data', 'library'),
+        path.resolve(process.cwd(), 'data', 'library'),
+        path.resolve(__dirname, '..', '..', '..', 'data', 'library'),
+        '/opt/render/project/src/data/library',
+    ];
 
-    if (!fs.existsSync(libraryDir)) {
-        if (log) log.warn(`[scanLibrary] Library directory not found: ${libraryDir}`);
+    let libraryDir = '';
+    for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+            libraryDir = p;
+            break;
+        }
+    }
+
+    if (!libraryDir) {
+        if (log) log.warn(`[scanLibrary] Library not found in any of: ${possiblePaths.join(', ')}`);
         return { total: 0, processed: 0, failed: 0, results: [] };
     }
+
+    if (log) log.info(`[scanLibrary] Using library path: ${libraryDir}`);
 
     const files = fs.readdirSync(libraryDir).filter(f => f.toLowerCase().endsWith('.pdf'));
 

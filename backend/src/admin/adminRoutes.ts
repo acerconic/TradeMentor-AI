@@ -128,7 +128,7 @@ export default async function adminRoutes(server: FastifyInstance) {
                 const totalStudents = studentsResult.rows[0].count;
 
                 // Courses count
-                const coursesResult = await query(`SELECT COUNT(*) as count FROM "Course"`);
+                const coursesResult = await query(`SELECT COUNT(*) as count FROM courses`);
                 const activeCourses = coursesResult.rows[0].count;
 
                 // AI Interactions count
