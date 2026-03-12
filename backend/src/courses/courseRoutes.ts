@@ -1,6 +1,40 @@
 import { FastifyInstance } from 'fastify'
 import { query } from '../config/db'
 import crypto from 'crypto'
+import fs from 'fs'
+import path from 'path'
+
+function resolveSafePdfPath(storedPath: string): string | null {
+    const raw = String(storedPath || '').trim()
+    if (!raw) return null
+
+    const normalized = path.normalize(raw)
+
+    // Allow only files from known directories inside this repo deployment layout.
+    const allowedRoots = [
+        path.resolve(process.cwd(), '..', 'data', 'library'),
+        path.resolve(process.cwd(), '..', 'data', 'uploads'),
+        path.resolve(process.cwd(), 'data', 'library'),
+        path.resolve(process.cwd(), 'data', 'uploads'),
+        path.resolve(__dirname, '..', '..', '..', 'data', 'library'),
+        path.resolve(__dirname, '..', '..', '..', 'data', 'uploads'),
+        '/opt/render/project/src/data/library',
+        '/opt/render/project/src/data/uploads',
+    ].map(r => path.normalize(r))
+
+    // If absolute path, verify it sits under an allowed root.
+    if (path.isAbsolute(normalized)) {
+        const ok = allowedRoots.some(root => normalized.startsWith(root + path.sep) || normalized === root)
+        return ok ? normalized : null
+    }
+
+    // If relative path, resolve it against allowed roots and pick the first that exists.
+    for (const root of allowedRoots) {
+        const candidate = path.normalize(path.join(root, normalized))
+        if (candidate.startsWith(root + path.sep) && fs.existsSync(candidate)) return candidate
+    }
+    return null
+}
 
 // ── Self-healing migration: ensure all needed columns exist ──────────────
 export async function ensureSchema(server: FastifyInstance) {
@@ -208,6 +242,105 @@ export async function publicCourseRoutes(server: FastifyInstance) {
         } catch (e: any) {
             server.log.error(`[Courses] Lessons fetch error: ${e.message}`)
             return reply.status(500).send({ error: 'Failed to fetch lessons', details: e.message })
+        }
+    })
+
+    // GET /courses/lessons/:lessonId — lesson details + next lesson id
+    server.get('/lessons/:lessonId', { preValidation: [server.authenticate] }, async (request: any, reply) => {
+        try {
+            const { lessonId } = request.params as { lessonId: string }
+
+            const res = await query(
+                `SELECT 
+                    l.id,
+                    l.title,
+                    l.summary,
+                    l.pdf_path,
+                    l.sort_order,
+                    l.position,
+                    l.created_at,
+                    m.id as module_id,
+                    m.title as module_title,
+                    m.sort_order as module_sort_order,
+                    c.id as course_id,
+                    c.title as course_title,
+                    c.category as course_category,
+                    c.level as course_level,
+                    c.language as course_language
+                 FROM lessons l
+                 JOIN modules m ON m.id = l.module_id
+                 JOIN courses c ON c.id = m.course_id
+                 WHERE l.id = $1
+                 LIMIT 1`,
+                [lessonId]
+            )
+
+            if (!res.rows.length) return reply.status(404).send({ error: 'Lesson not found' })
+            const lesson = res.rows[0]
+
+            // Determine next lesson:
+            // 1) Next by sort_order within same module
+            // 2) Else first lesson of next module within same course
+            let nextLessonId: string | null = null
+
+            const nextInModule = await query(
+                `SELECT id
+                 FROM lessons
+                 WHERE module_id = $1 AND sort_order > $2
+                 ORDER BY sort_order ASC, created_at ASC
+                 LIMIT 1`,
+                [lesson.module_id, lesson.sort_order || 0]
+            )
+            if (nextInModule.rows.length) {
+                nextLessonId = nextInModule.rows[0].id
+            } else {
+                const nextModule = await query(
+                    `SELECT id
+                     FROM modules
+                     WHERE course_id = $1 AND sort_order > $2
+                     ORDER BY sort_order ASC, created_at ASC
+                     LIMIT 1`,
+                    [lesson.course_id, lesson.module_sort_order || 0]
+                )
+                if (nextModule.rows.length) {
+                    const firstLesson = await query(
+                        `SELECT id
+                         FROM lessons
+                         WHERE module_id = $1
+                         ORDER BY sort_order ASC, created_at ASC
+                         LIMIT 1`,
+                        [nextModule.rows[0].id]
+                    )
+                    if (firstLesson.rows.length) nextLessonId = firstLesson.rows[0].id
+                }
+            }
+
+            return { ...lesson, next_lesson_id: nextLessonId }
+        } catch (e: any) {
+            server.log.error(`[Courses] Lesson fetch error: ${e.message}`)
+            return reply.status(500).send({ error: 'Failed to fetch lesson', details: e.message })
+        }
+    })
+
+    // GET /courses/lessons/:lessonId/pdf — stream lesson PDF (auth)
+    server.get('/lessons/:lessonId/pdf', { preValidation: [server.authenticate] }, async (request: any, reply) => {
+        try {
+            const { lessonId } = request.params as { lessonId: string }
+            const res = await query(`SELECT pdf_path, title FROM lessons WHERE id = $1 LIMIT 1`, [lessonId])
+            if (!res.rows.length) return reply.status(404).send({ error: 'Lesson not found' })
+
+            const pdfPath = resolveSafePdfPath(res.rows[0].pdf_path)
+            if (!pdfPath) return reply.status(404).send({ error: 'PDF not found' })
+            if (!fs.existsSync(pdfPath)) return reply.status(404).send({ error: 'PDF not found' })
+
+            reply.header('Content-Type', 'application/pdf')
+            reply.header('Content-Disposition', `inline; filename="${encodeURIComponent(String(res.rows[0].title || 'lesson'))}.pdf"`)
+
+            const stream = fs.createReadStream(pdfPath)
+            return reply.send(stream)
+        } catch (e: any) {
+            server.log.error(`[Courses] Lesson PDF error: ${e.message}`)
+            return reply.status(500).send({ error: 'Failed to load PDF', details: e.message })
         }
     })
 }

@@ -303,7 +303,11 @@ export default function AdminCourses() {
                                                     ) : (
                                                         <div className="space-y-2">
                                                             {(mod.lessons || []).map((lesson, li) => (
-                                                                <div key={lesson.id} className="flex items-start gap-3 pl-5 py-2 rounded-lg hover:bg-white/[0.03] transition-colors">
+                                                                <button
+                                                                    key={lesson.id}
+                                                                    onClick={() => router.push(`/admin/lessons/${lesson.id}`)}
+                                                                    className="w-full flex items-start gap-3 pl-5 py-2 rounded-lg hover:bg-white/[0.03] transition-colors text-left"
+                                                                >
                                                                     <div className="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold mt-0.5 shrink-0"
                                                                         style={{ background: 'rgba(123,63,228,0.2)', color: '#A87BFF' }}>
                                                                         {li + 1}
@@ -318,7 +322,7 @@ export default function AdminCourses() {
                                                                             </div>
                                                                         )}
                                                                     </div>
-                                                                </div>
+                                                                </button>
                                                             ))}
                                                         </div>
                                                     )}
