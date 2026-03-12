@@ -22,6 +22,7 @@ import { api } from '@/lib/api';
 interface Message {
     role: 'user' | 'assistant';
     content: string;
+    image?: string;
     timestamp: Date;
 }
 
@@ -35,8 +36,66 @@ export default function AIChatPage() {
     ]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [toastMessage, setToastMessage] = useState<string | null>(null);
+    const [selectedImage, setSelectedImage] = useState<File | null>(null);
+    const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const router = useRouter();
+
+    const showToast = (msg: string) => {
+        setToastMessage(msg);
+        setTimeout(() => setToastMessage(null), 3000);
+    };
+
+    const handleFeatureSoon = (e: React.MouseEvent, feature: string) => {
+        e.preventDefault();
+        showToast(`${feature} feature is coming soon!`);
+    };
+
+    const removeImage = () => {
+        setSelectedImage(null);
+        setImagePreview(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    const handleClearChat = () => {
+        setMessages([
+            {
+                role: 'assistant',
+                content: "Hello! I am your TradeMentor AI. I specialize in SMC/ICT, market structure, and trading psychology. How can I help you refine your edge today?",
+                timestamp: new Date()
+            }
+        ]);
+        setInput('');
+        removeImage();
+        showToast("Chat history cleared");
+    };
+
+    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            if (file.type !== 'image/jpeg' && file.type !== 'image/png') {
+                showToast("Only JPEG and PNG images are allowed");
+                return;
+            }
+            if (file.size > 5 * 1024 * 1024) {
+                showToast("Image must be less than 5MB");
+                return;
+            }
+            setSelectedImage(file);
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setImagePreview(reader.result as string);
+                showToast("Image attached! Ready to send.");
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const triggerFileInput = () => {
+        fileInputRef.current?.click();
+    };
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -53,6 +112,7 @@ export default function AIChatPage() {
         const userMessage: Message = {
             role: 'user',
             content: input,
+            image: imagePreview || undefined,
             timestamp: new Date()
         };
 
@@ -61,13 +121,18 @@ export default function AIChatPage() {
         setIsLoading(true);
 
         try {
-            const res = await api.post('/ai/chat', { message: input });
+            const payload: any = { message: input };
+            if (imagePreview) {
+                payload.image = imagePreview;
+            }
+            const res = await api.post('/ai/chat', payload);
             const aiResponse: Message = {
                 role: 'assistant',
                 content: res.data.response,
                 timestamp: new Date()
             };
             setMessages(prev => [...prev, aiResponse]);
+            removeImage();
         } catch (err) {
             console.error(err);
             const errorMsg: Message = {
@@ -82,7 +147,21 @@ export default function AIChatPage() {
     };
 
     return (
-        <div className="flex h-screen bg-slate-950 overflow-hidden">
+        <div className="flex h-screen bg-slate-950 overflow-hidden relative">
+            <AnimatePresence>
+                {toastMessage && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -50 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -50 }}
+                        className="fixed top-6 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 bg-slate-900 border border-slate-700 text-white rounded-full shadow-2xl flex items-center space-x-3"
+                    >
+                        <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                        <span className="text-sm font-bold tracking-wide">{toastMessage}</span>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             {/* Sidebar - Quick Knowledge */}
             <aside className="hidden lg:flex w-80 border-r border-slate-800 flex-col bg-slate-900/50 backdrop-blur-xl">
                 <div className="p-6">
@@ -135,6 +214,14 @@ export default function AIChatPage() {
 
             {/* Main Chat Area */}
             <main className="flex-1 flex flex-col relative">
+                <input
+                    type="file"
+                    accept="image/*"
+                    ref={fileInputRef}
+                    onChange={handleImageUpload}
+                    className="hidden"
+                />
+
                 {/* Chat Header */}
                 <div className="px-8 py-6 border-b border-slate-800 flex items-center justify-between bg-slate-950/50 backdrop-blur-md z-10">
                     <div className="flex items-center space-x-4">
@@ -151,10 +238,10 @@ export default function AIChatPage() {
                     </div>
 
                     <div className="flex items-center space-x-3">
-                        <button className="p-2 border border-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors">
+                        <button onClick={triggerFileInput} className="p-2 border border-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors">
                             <ImageIcon size={20} />
                         </button>
-                        <button className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-slate-300 hover:text-white transition-all text-xs font-bold">
+                        <button onClick={handleClearChat} className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-slate-300 hover:text-white transition-all text-xs font-bold">
                             Clear Chat
                         </button>
                     </div>
@@ -187,6 +274,11 @@ export default function AIChatPage() {
                                     ? "bg-slate-900/80 border border-slate-800 text-slate-200"
                                     : "bg-primary text-white"
                             )}>
+                                {msg.image && (
+                                    <div className="mb-4">
+                                        <img src={msg.image} alt="User upload" className="max-w-[240px] rounded-xl shadow-md border border-white/20" />
+                                    </div>
+                                )}
                                 <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                                 <div className={cn(
                                     "mt-3 text-[10px] opacity-40 uppercase font-bold tracking-widest",
@@ -226,11 +318,20 @@ export default function AIChatPage() {
                         <div className="relative glass border border-slate-700/50 rounded-3xl overflow-hidden focus-within:border-primary/50 transition-all shadow-2xl">
                             <div className="px-6 py-2 flex items-center bg-slate-900/40 border-b border-slate-800/50">
                                 <div className="flex space-x-4 text-slate-500">
-                                    <button type="button" className="hover:text-primary transition-colors"><ImageIcon size={18} /></button>
-                                    <button type="button" className="hover:text-primary transition-colors"><Paperclip size={18} /></button>
-                                    <button type="button" className="hover:text-primary transition-colors"><TrendingUp size={18} /></button>
+                                    <button type="button" onClick={triggerFileInput} className="hover:text-primary transition-colors"><ImageIcon size={18} /></button>
+                                    <button type="button" onClick={(e) => handleFeatureSoon(e, 'Attachments')} className="hover:text-primary transition-colors"><Paperclip size={18} /></button>
+                                    <button type="button" onClick={(e) => handleFeatureSoon(e, 'Chart Analysis')} className="hover:text-primary transition-colors"><TrendingUp size={18} /></button>
                                 </div>
                             </div>
+                            {imagePreview && (
+                                <div className="px-6 py-3 bg-slate-900/40 border-b border-slate-800/50 flex items-center justify-between">
+                                    <div className="flex items-center space-x-3">
+                                        <img src={imagePreview} alt="Preview" className="w-10 h-10 rounded object-cover border border-slate-700" />
+                                        <span className="text-xs text-slate-400 truncate max-w-[200px]">{selectedImage?.name || 'Image attached'}</span>
+                                    </div>
+                                    <button type="button" onClick={removeImage} className="text-slate-500 hover:text-red-400 text-xs font-bold">Remove</button>
+                                </div>
+                            )}
                             <div className="flex items-center p-2">
                                 <textarea
                                     rows={1}

@@ -1,0 +1,84 @@
+{
+  "Course": [
+    {
+      "column_name": "id",
+      "data_type": "text"
+    },
+    {
+      "column_name": "title",
+      "data_type": "text"
+    },
+    {
+      "column_name": "description",
+      "data_type": "text"
+    },
+    {
+      "column_name": "language",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "column_name": "createdAt",
+      "data_type": "timestamp without time zone"
+    },
+    {
+      "column_name": "updatedAt",
+      "data_type": "timestamp without time zone"
+    }
+  ],
+  "Module": [
+    {
+      "column_name": "id",
+      "data_type": "text"
+    },
+    {
+      "column_name": "title",
+      "data_type": "text"
+    },
+    {
+      "column_name": "order",
+      "data_type": "integer"
+    },
+    {
+      "column_name": "courseId",
+      "data_type": "text"
+    },
+    {
+      "column_name": "createdAt",
+      "data_type": "timestamp without time zone"
+    },
+    {
+      "column_name": "updatedAt",
+      "data_type": "timestamp without time zone"
+    }
+  ],
+  "Lesson": [
+    {
+      "column_name": "id",
+      "data_type": "text"
+    },
+    {
+      "column_name": "title",
+      "data_type": "text"
+    },
+    {
+      "column_name": "content",
+      "data_type": "text"
+    },
+    {
+      "column_name": "order",
+      "data_type": "integer"
+    },
+    {
+      "column_name": "moduleId",
+      "data_type": "text"
+    },
+    {
+      "column_name": "createdAt",
+      "data_type": "timestamp without time zone"
+    },
+    {
+      "column_name": "updatedAt",
+      "data_type": "timestamp without time zone"
+    }
+  ]
+}

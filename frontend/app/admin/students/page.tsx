@@ -13,7 +13,8 @@ import {
     X,
     Copy,
     Check,
-    UserPlus
+    UserPlus,
+    Loader2
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -30,6 +31,17 @@ export default function StudentsPage() {
     const [isCreating, setIsCreating] = useState(false);
     const [createdCredentials, setCreatedCredentials] = useState<any>(null);
     const [copied, setCopied] = useState(false);
+    const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+    const showToast = (msg: string) => {
+        setToastMessage(msg);
+        setTimeout(() => setToastMessage(null), 3000);
+    };
+
+    const handleFeatureSoon = (e: React.MouseEvent, feature: string) => {
+        e.preventDefault();
+        showToast(`${feature} feature is coming soon!`);
+    };
 
     const fetchUsers = async () => {
         setIsLoading(true);
@@ -132,6 +144,15 @@ export default function StudentsPage() {
                                         <td colSpan={6} className="px-6 py-8"><div className="h-4 bg-slate-800 rounded w-full"></div></td>
                                     </tr>
                                 ))
+                            ) : filteredUsers.length === 0 ? (
+                                <tr>
+                                    <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                                        <div className="flex flex-col items-center justify-center space-y-3">
+                                            <Users size={32} className="text-slate-600" />
+                                            <p className="text-sm font-medium">No students found</p>
+                                        </div>
+                                    </td>
+                                </tr>
                             ) : filteredUsers.map((user) => (
                                 <tr key={user.id} className="hover:bg-slate-800/30 transition-colors">
                                     <td className="px-6 py-4">
@@ -171,7 +192,7 @@ export default function StudentsPage() {
                                         {user.last_login ? new Date(user.last_login).toLocaleTimeString() : 'Never'}
                                     </td>
                                     <td className="px-6 py-4 text-right">
-                                        <button className="p-2 text-slate-500 hover:text-white transition-colors">
+                                        <button onClick={(e) => handleFeatureSoon(e, 'User Actions')} className="p-2 text-slate-500 hover:text-white transition-colors">
                                             <MoreVertical size={18} />
                                         </button>
                                     </td>
@@ -182,8 +203,19 @@ export default function StudentsPage() {
                 </div>
             </div>
 
-            {/* Create User Modal */}
+            {/* Create User Modal & Toasts */}
             <AnimatePresence>
+                {toastMessage && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -50 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -50 }}
+                        className="fixed top-6 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 bg-slate-900 border border-slate-700 text-white rounded-full shadow-2xl flex items-center space-x-3"
+                    >
+                        <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                        <span className="text-sm font-bold tracking-wide">{toastMessage}</span>
+                    </motion.div>
+                )}
                 {isModalOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                         <motion.div
@@ -259,7 +291,7 @@ export default function StudentsPage() {
                                             disabled={isCreating}
                                             className="w-full py-3 bg-primary hover:bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-primary/20 disabled:opacity-50 transition-all mt-6"
                                         >
-                                            {isCreating ? <RefreshCw className="animate-spin mx-auto" size={20} /> : 'Generate Login & Access'}
+                                            {isCreating ? <Loader2 className="animate-spin mx-auto" size={20} /> : 'Generate Login & Access'}
                                         </button>
                                     </form>
                                 </>

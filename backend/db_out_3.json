@@ -1,0 +1,6 @@
+{
+  "users": "relation \"users\" does not exist",
+  "Course": "success",
+  "courses": "relation \"courses\" does not exist",
+  "User": "success"
+}

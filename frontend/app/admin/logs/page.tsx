@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
     Shield,
     Search,
@@ -20,6 +20,17 @@ export default function LogsPage() {
     const [logs, setLogs] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
+    const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+    const showToast = (msg: string) => {
+        setToastMessage(msg);
+        setTimeout(() => setToastMessage(null), 3000);
+    };
+
+    const handleFeatureSoon = (e: React.MouseEvent, feature: string) => {
+        e.preventDefault();
+        showToast(`${feature} feature is coming soon!`);
+    };
 
     const fetchLogs = async () => {
         setIsLoading(true);
@@ -48,7 +59,20 @@ export default function LogsPage() {
     };
 
     return (
-        <div className="space-y-8">
+        <div className="space-y-8 relative">
+            <AnimatePresence>
+                {toastMessage && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -50 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -50 }}
+                        className="fixed top-6 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 bg-slate-900 border border-slate-700 text-white rounded-full shadow-2xl flex items-center space-x-3"
+                    >
+                        <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                        <span className="text-sm font-bold tracking-wide">{toastMessage}</span>
+                    </motion.div>
+                )}
+            </AnimatePresence>
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-white flex items-center">
@@ -58,7 +82,7 @@ export default function LogsPage() {
                     <p className="text-slate-400 mt-1">Track system activity and user actions</p>
                 </div>
                 <div className="flex gap-2">
-                    <button className="flex items-center px-4 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-300 hover:text-white transition-all text-sm">
+                    <button onClick={(e) => handleFeatureSoon(e, 'Advanced Filtering')} className="flex items-center px-4 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-300 hover:text-white transition-all text-sm">
                         <Filter size={16} className="mr-2" />
                         Filter
                     </button>

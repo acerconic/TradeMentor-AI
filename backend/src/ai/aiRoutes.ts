@@ -1,12 +1,29 @@
 import { FastifyInstance } from 'fastify'
 import { query } from '../config/db'
 import z from 'zod'
+import { openRouterService } from './openrouter'
 
 const ChatSchema = z.object({
     message: z.string().min(1),
+    image: z.string().optional()
 })
 
 export default async function aiRoutes(server: FastifyInstance) {
+
+    // ── GET /ai/test ───────────────────────────────────────────
+    server.get(
+        '/test',
+        async (request: any, reply) => {
+            try {
+                const model = 'meta-llama/llama-3.1-8b-instruct:free';
+                const messages = [{ role: 'user', content: 'Say "hello world" if you are online.' }];
+                const data = await openRouterService.chat(model, messages, server);
+                return { success: true, ai_response: data.choices[0].message.content, model };
+            } catch (error: any) {
+                return reply.status(500).send({ success: false, error: 'OpenRouter Test Failed', details: error.message });
+            }
+        }
+    )
 
     // ── POST /ai/chat ──────────────────────────────────────────
     server.post(
@@ -14,8 +31,26 @@ export default async function aiRoutes(server: FastifyInstance) {
         { preValidation: [server.authenticate] },
         async (request: any, reply) => {
             try {
-                const { message } = ChatSchema.parse(request.body)
+                const { message, image } = ChatSchema.parse(request.body)
                 const userId = request.user.id
+
+                // Validate Image
+                let validatedImage = "";
+                if (image) {
+                    if (image.startsWith('blob:') || image.startsWith('http')) {
+                        return reply.status(400).send({ error: 'Local or blob URLs are not supported. Upload a valid image file.' });
+                    }
+                    if (!image.startsWith('data:image/jpeg;base64,') && !image.startsWith('data:image/png;base64,')) {
+                        return reply.status(400).send({ error: 'Invalid image format. Only JPEG and PNG are allowed.' });
+                    }
+
+                    const base64Data = image.split(',')[1];
+                    const sizeBytes = (base64Data.length * 3) / 4;
+                    if (sizeBytes > 5 * 1024 * 1024) {
+                        return reply.status(400).send({ error: 'Image too large. Maximum size is 5MB.' });
+                    }
+                    validatedImage = image;
+                }
 
                 // 1. Получаем контекст из книг в библиотеке
                 let libraryContext = "";
@@ -51,39 +86,27 @@ Rules:
                 let successfullyCalled = false;
                 let lastError = "";
 
+                // Formatting message properly if an image is attached
+                let finalUserContent: any = message;
+                if (validatedImage) {
+                    finalUserContent = [
+                        { type: 'text', text: message },
+                        { type: 'image_url', image_url: { url: validatedImage } }
+                    ];
+                }
+
                 for (const model of models) {
                     if (successfullyCalled) break;
-
                     try {
-                        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                            method: 'POST',
-                            headers: {
-                                'Authorization': `Bearer ${process.env.OPENROUTER_KEY_1}`,
-                                'Content-Type': 'application/json',
-                                'HTTP-Referer': 'https://tradementor-ai.com',
-                                'X-Title': 'TradeMentor AI',
-                            },
-                            body: JSON.stringify({
-                                model: model,
-                                messages: [
-                                    { role: 'system', content: systemPrompt },
-                                    { role: 'user', content: message }
-                                ],
-                            }),
-                        });
+                        const data = await openRouterService.chat(model, [
+                            { role: 'system', content: systemPrompt },
+                            { role: 'user', content: finalUserContent }
+                        ], server);
 
-                        if (response.ok) {
-                            const data = await response.json();
-                            aiMessage = data.choices?.[0]?.message?.content;
-                            if (aiMessage) successfullyCalled = true;
-                        } else {
-                            const errText = await response.text();
-                            lastError = `Model ${model} failed (${response.status}): ${errText}`;
-                            server.log.warn(lastError);
-                        }
+                        aiMessage = data.choices?.[0]?.message?.content;
+                        if (aiMessage) successfullyCalled = true;
                     } catch (e: any) {
                         lastError = `Fetch error for ${model}: ${e.message}`;
-                        server.log.error(lastError);
                     }
                 }
 
@@ -94,7 +117,7 @@ Rules:
                 // Log the AI request to DB
                 await query(
                     'INSERT INTO ai_requests (user_id, type, message, response, provider) VALUES ($1, $2, $3, $4, $5)',
-                    [userId, 'chat', message, aiMessage, 'openrouter']
+                    [userId, 'chat', message + (validatedImage ? " [IMAGE ATTACHED]" : ""), aiMessage, 'openrouter']
                 ).catch(e => server.log.error('DB Log Error:', e));
 
                 // Audit log

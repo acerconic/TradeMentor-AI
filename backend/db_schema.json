@@ -1,0 +1,111 @@
+{
+  "tables": [
+    "pg_stat_statements_info",
+    "pg_stat_statements",
+    "Lesson",
+    "User",
+    "Course",
+    "UserProgress",
+    "ExamResult",
+    "AuditLog",
+    "AiChat",
+    "Module"
+  ],
+  "columns": [
+    {
+      "table_name": "Module",
+      "column_name": "updatedAt",
+      "data_type": "timestamp without time zone"
+    },
+    {
+      "table_name": "Course",
+      "column_name": "language",
+      "data_type": "USER-DEFINED"
+    },
+    {
+      "table_name": "Course",
+      "column_name": "createdAt",
+      "data_type": "timestamp without time zone"
+    },
+    {
+      "table_name": "Course",
+      "column_name": "updatedAt",
+      "data_type": "timestamp without time zone"
+    },
+    {
+      "table_name": "Lesson",
+      "column_name": "order",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "Lesson",
+      "column_name": "createdAt",
+      "data_type": "timestamp without time zone"
+    },
+    {
+      "table_name": "Lesson",
+      "column_name": "updatedAt",
+      "data_type": "timestamp without time zone"
+    },
+    {
+      "table_name": "Module",
+      "column_name": "order",
+      "data_type": "integer"
+    },
+    {
+      "table_name": "Module",
+      "column_name": "createdAt",
+      "data_type": "timestamp without time zone"
+    },
+    {
+      "table_name": "Module",
+      "column_name": "title",
+      "data_type": "text"
+    },
+    {
+      "table_name": "Lesson",
+      "column_name": "moduleId",
+      "data_type": "text"
+    },
+    {
+      "table_name": "Course",
+      "column_name": "title",
+      "data_type": "text"
+    },
+    {
+      "table_name": "Course",
+      "column_name": "description",
+      "data_type": "text"
+    },
+    {
+      "table_name": "Course",
+      "column_name": "id",
+      "data_type": "text"
+    },
+    {
+      "table_name": "Module",
+      "column_name": "courseId",
+      "data_type": "text"
+    },
+    {
+      "table_name": "Module",
+      "column_name": "id",
+      "data_type": "text"
+    },
+    {
+      "table_name": "Lesson",
+      "column_name": "id",
+      "data_type": "text"
+    },
+    {
+      "table_name": "Lesson",
+      "column_name": "title",
+      "data_type": "text"
+    },
+    {
+      "table_name": "Lesson",
+      "column_name": "content",
+      "data_type": "text"
+    }
+  ]
+}

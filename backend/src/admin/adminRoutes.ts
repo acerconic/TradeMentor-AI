@@ -105,12 +105,46 @@ export default async function adminRoutes(server: FastifyInstance) {
         async (request: any, reply) => {
             const result = await query(
                 `SELECT al.*, u.login as user_login
-         FROM audit_logs al
-         LEFT JOIN users u ON al.user_id = u.id
-         ORDER BY al.created_at DESC
-         LIMIT 200`
+                 FROM audit_logs al
+                 LEFT JOIN users u ON al.user_id = u.id
+                 ORDER BY al.created_at DESC
+                 LIMIT 200`
             )
             return result.rows
+        }
+    )
+
+    // ── GET /admin/stats ──────────────────────────────────────
+    server.get(
+        '/stats',
+        { preValidation: [server.authenticate, requireSuperadmin] },
+        async (request: any, reply) => {
+            try {
+                // Students count
+                const studentsResult = await query(`SELECT COUNT(*) as count FROM users WHERE role = 'student'`);
+                const totalStudents = studentsResult.rows[0].count;
+
+                // Courses count
+                const coursesResult = await query(`SELECT COUNT(*) as count FROM "Course"`);
+                const activeCourses = coursesResult.rows[0].count;
+
+                // AI Interactions count
+                let aiInteractions = 0;
+                try {
+                    const aiResult = await query(`SELECT COUNT(*) as count FROM ai_requests`);
+                    aiInteractions = aiResult.rows[0].count;
+                } catch (e) { /* Ignore if table doesnt exist yet */ }
+
+                return {
+                    totalStudents: parseInt(totalStudents) || 0,
+                    activeCourses: parseInt(activeCourses) || 0,
+                    aiInteractions: parseInt(aiInteractions as any) || 0,
+                    systemAlerts: 0 // Dummy or could be based on failed ai_requests
+                }
+            } catch (err) {
+                server.log.error(err)
+                return reply.status(500).send({ error: 'Failed to fetch stats' })
+            }
         }
     )
 }

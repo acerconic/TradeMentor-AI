@@ -4,10 +4,22 @@ import React, { useEffect, useState } from 'react';
 import { MessageSquare, Search, RefreshCw, Trash2, ShieldCheck, User } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function AdminAIResponses() {
     const [logs, setLogs] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+    const showToast = (msg: string) => {
+        setToastMessage(msg);
+        setTimeout(() => setToastMessage(null), 3000);
+    };
+
+    const handleFeatureSoon = (e: React.MouseEvent, feature: string) => {
+        e.preventDefault();
+        showToast(`${feature} feature is coming soon!`);
+    };
 
     const fetchAIHistory = async () => {
         setIsLoading(true);
@@ -28,7 +40,20 @@ export default function AdminAIResponses() {
     }, []);
 
     return (
-        <div className="space-y-8">
+        <div className="space-y-8 relative">
+            <AnimatePresence>
+                {toastMessage && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -50 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -50 }}
+                        className="fixed top-6 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 bg-slate-900 border border-slate-700 text-white rounded-full shadow-2xl flex items-center space-x-3"
+                    >
+                        <div className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
+                        <span className="text-sm font-bold tracking-wide">{toastMessage}</span>
+                    </motion.div>
+                )}
+            </AnimatePresence>
             <div>
                 <h1 className="text-3xl font-bold text-white flex items-center">
                     <ShieldCheck size={32} className="mr-3 text-purple-500" />
@@ -70,7 +95,7 @@ export default function AdminAIResponses() {
                                         {new Date(log.created_at).toLocaleString()}
                                     </td>
                                     <td className="px-6 py-4 text-right">
-                                        <button className="text-xs text-primary hover:underline font-bold">View full log</button>
+                                        <button onClick={(e) => handleFeatureSoon(e, 'View Full Log')} className="text-xs text-primary hover:underline font-bold">View full log</button>
                                     </td>
                                 </tr>
                             ))}

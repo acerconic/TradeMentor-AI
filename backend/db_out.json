@@ -1,0 +1,16 @@
+{
+  "tables": [
+    "pg_stat_statements_info",
+    "pg_stat_statements",
+    "Lesson",
+    "User",
+    "Course",
+    "UserProgress",
+    "ExamResult",
+    "AuditLog",
+    "AiChat",
+    "Module"
+  ],
+  "usersSchema": [],
+  "coursesSchema": []
+}
