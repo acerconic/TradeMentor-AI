@@ -5,13 +5,16 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
     BookOpen,
     MessageSquare,
-    Search,
     TrendingUp,
     Award,
-    Zap,
     Play,
     LogOut,
-    Loader2
+    Loader2,
+    ChevronRight,
+    Zap,
+    BarChart2,
+    Brain,
+    Radio
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
@@ -20,7 +23,6 @@ import { api } from '@/lib/api';
 
 export default function StudentDashboard() {
     const [user, setUser] = useState<any>(null);
-    const [lang, setLang] = useState('EN');
     const [courses, setCourses] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -32,7 +34,7 @@ export default function StudentDashboard() {
             const res = await api.get('/courses');
             setCourses(res.data);
         } catch (e) {
-            console.error('Failed to fetch courses', e);
+            // ignore
         } finally {
             setIsLoading(false);
         }
@@ -40,25 +42,13 @@ export default function StudentDashboard() {
 
     useEffect(() => {
         const userStr = Cookies.get('user');
-        if (userStr) {
-            setUser(JSON.parse(userStr));
-        }
+        if (userStr) setUser(JSON.parse(userStr));
         fetchCourses();
     }, []);
 
     const showToast = (msg: string) => {
         setToastMessage(msg);
         setTimeout(() => setToastMessage(null), 3000);
-    };
-
-    const handleFeatureSoon = (e: React.MouseEvent, feature: string) => {
-        e.preventDefault();
-        showToast(`${feature} feature is coming soon!`);
-    };
-
-    const changeLanguage = (newLang: string) => {
-        setLang(newLang);
-        showToast(`Language switched to ${newLang}`);
     };
 
     const handleLogout = () => {
@@ -69,261 +59,325 @@ export default function StudentDashboard() {
 
     if (!user) return null;
 
+    const firstName = user.name?.split(' ')[0] || user.name;
+
     return (
-        <div className="min-h-screen bg-slate-950 text-white flex flex-col relative">
-            {/* Toast Notification */}
+        <div className="min-h-screen text-white flex flex-col" style={{ background: '#0B1220' }}>
+            {/* Toast */}
             <AnimatePresence>
                 {toastMessage && (
                     <motion.div
-                        initial={{ opacity: 0, y: -50 }}
+                        initial={{ opacity: 0, y: -60 }}
                         animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -50 }}
-                        className="fixed top-6 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 bg-slate-900 border border-slate-700 text-white rounded-full shadow-2xl flex items-center space-x-3"
+                        exit={{ opacity: 0, y: -60 }}
+                        className="fixed top-5 left-1/2 z-[200] px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 text-white text-sm font-semibold"
+                        style={{ transform: 'translateX(-50%)', background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)', boxShadow: '0 8px 32px rgba(123,63,228,0.4)' }}
                     >
-                        <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                        <span className="text-sm font-bold tracking-wide">{toastMessage}</span>
+                        <Zap size={16} fill="white" />
+                        {toastMessage}
                     </motion.div>
                 )}
             </AnimatePresence>
 
-            {/* Header */}
-            <nav className="glass sticky top-0 z-[100] px-8 py-3 flex items-center justify-between border-b border-white/5">
-                <div className="flex items-center space-x-3 group cursor-pointer" onClick={() => router.push('/dashboard')}>
-                    <div className="relative">
-                        <div className="absolute -inset-1 bg-gradient-to-r from-primary to-emerald-500 rounded-lg blur opacity-25 group-hover:opacity-75 transition duration-1000 group-hover:duration-200"></div>
-                        <div className="relative bg-slate-900 p-1.5 rounded-lg border border-white/10">
-                            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-white">
-                                <path d="M20 5L5 15V25L20 35L35 25V15L20 5Z" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                                <path d="M20 12V28M13 18L20 25L27 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                        </div>
+            {/* Navbar */}
+            <nav className="sticky top-0 z-[100] px-6 md:px-10 py-4 flex items-center justify-between"
+                style={{ background: 'rgba(11,18,32,0.85)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(123,63,228,0.12)' }}>
+                <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl flex items-center justify-center"
+                        style={{ background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)', boxShadow: '0 0 20px rgba(123,63,228,0.4)' }}>
+                        <Zap size={16} fill="white" className="text-white" />
                     </div>
-                    <span className="text-xl font-bold tracking-tighter uppercase">
-                        Trade<span className="text-primary italic">Mentor</span> AI
+                    <span className="text-lg font-black" style={{ fontFamily: 'Outfit, sans-serif', letterSpacing: '-0.03em' }}>
+                        Trade<span style={{ background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Mentor</span>
+                        <span className="text-white"> AI</span>
                     </span>
                 </div>
 
-                <div className="flex items-center space-x-8">
-                    <div className="hidden lg:flex items-center space-x-6 text-sm font-medium text-slate-400">
-                        <button onClick={() => router.push('/dashboard')} className="text-white hover:text-white transition-colors relative">
-                            Academy
-                            <div className="absolute -bottom-1.5 left-0 w-full h-[2px] bg-primary rounded-full"></div>
+                <div className="hidden md:flex items-center gap-1">
+                    {[
+                        { label: 'Academy', active: true, href: '/dashboard' },
+                        { label: 'Progress', active: false },
+                        { label: 'Signals', active: false, soon: true },
+                    ].map(item => (
+                        <button
+                            key={item.label}
+                            onClick={() => item.href ? router.push(item.href) : showToast(`${item.label} — coming soon!`)}
+                            className={cn(
+                                "px-4 py-2 rounded-xl text-sm font-medium transition-all",
+                                item.active ? "text-white" : "hover:text-white"
+                            )}
+                            style={item.active ? {
+                                background: 'linear-gradient(135deg, rgba(123,63,228,0.2), rgba(42,169,255,0.1))',
+                                color: '#A87BFF',
+                                border: '1px solid rgba(123,63,228,0.3)'
+                            } : { color: '#7B8CA6' }}
+                        >
+                            {item.label}
+                            {item.soon && <span className="ml-1.5 text-[9px] font-black badge-amber px-1 py-0.5 rounded-full">SOON</span>}
                         </button>
-                        <button onClick={(e) => handleFeatureSoon(e, 'Signals')} className="hover:text-white transition-colors">Signals</button>
-                        <button onClick={(e) => handleFeatureSoon(e, 'Profile')} className="hover:text-white transition-colors">Profile</button>
-                    </div>
+                    ))}
+                </div>
 
-                    <div className="flex items-center space-x-4 border-l border-white/10 pl-6">
-                        {/* Language Switcher */}
-                        <div className="relative group/lang px-3 py-1.5 bg-slate-900 rounded-lg border border-white/5 flex items-center space-x-2 text-xs font-bold cursor-pointer hover:bg-slate-800 transition-all">
-                            <span className="text-slate-400">{lang}</span>
-                            <div className="hidden group-hover/lang:block absolute top-full right-0 mt-2 w-24 glass-card p-1 z-50 overflow-hidden">
-                                {['EN', 'RU', 'UZ'].filter(l => l !== lang).map((l) => (
-                                    <div key={l} onClick={() => changeLanguage(l)} className="px-3 py-2 hover:bg-white/5 rounded text-left transition-colors">{l}</div>
-                                ))}
-                            </div>
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl cursor-pointer"
+                        style={{ background: '#111A2F', border: '1px solid rgba(123,63,228,0.15)' }}>
+                        <div className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold text-white"
+                            style={{ background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)' }}>
+                            {firstName.charAt(0)}
                         </div>
-
-                        <div className="flex items-center space-x-3 px-3 py-1 bg-slate-900 rounded-xl border border-white/5">
-                            <div onClick={(e) => handleFeatureSoon(e, 'Profile')} className="w-8 h-8 rounded-lg bg-primary/20 text-primary flex items-center justify-center font-bold text-xs cursor-pointer hover:bg-primary/30 transition-colors">
-                                {user.name.charAt(0)}
-                            </div>
-                            <div className="hidden sm:block cursor-pointer" onClick={(e) => handleFeatureSoon(e, 'Profile')}>
-                                <p className="text-xs font-bold leading-tight hover:text-primary transition-colors">{user.name}</p>
-                                <p className="text-[9px] text-slate-500 uppercase tracking-tighter">Student</p>
-                            </div>
-                            <button
-                                onClick={handleLogout}
-                                className="p-1.5 text-slate-500 hover:text-red-400 transition-colors ml-2"
-                            >
-                                <LogOut size={16} />
-                            </button>
-                        </div>
+                        <span className="hidden sm:block text-sm font-semibold text-white">{firstName}</span>
                     </div>
+                    <button onClick={handleLogout} className="p-2 rounded-xl text-red-400 hover:bg-red-400/10 transition-colors">
+                        <LogOut size={18} />
+                    </button>
                 </div>
             </nav>
 
-            <main className="flex-1 p-8 max-w-7xl mx-auto w-full space-y-12">
-                {/* Welcome Section */}
-                <section className="relative px-2">
-                    <div className="space-y-2">
-                        <motion.h2
-                            initial={{ opacity: 0, x: -20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            className="text-4xl font-bold tracking-tight text-white"
-                        >
-                            Welcome back, <span className="text-gradient font-extrabold">{user.name}</span>! 👋
-                        </motion.h2>
-                        <p className="text-slate-500 text-lg font-medium">Ready to sharpen your trading edge today?</p>
-                    </div>
+            {/* Main */}
+            <main className="flex-1 px-6 md:px-10 py-10 max-w-7xl mx-auto w-full">
 
-                    <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="group relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-blue-600 to-indigo-700 p-8 shadow-2xl shadow-blue-500/20"
-                        >
-                            <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-20 -mt-20 group-hover:scale-125 transition-transform duration-1000" />
-                            <div className="relative z-10 h-full flex flex-col justify-between">
-                                <div className="space-y-4">
-                                    <span className="px-4 py-1.5 bg-white/10 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-widest text-white border border-white/20">
-                                        AI ANALYST ACTIVE
-                                    </span>
-                                    <h3 className="text-3xl font-bold leading-tight">Master Market <br /> Structure with AI</h3>
-                                    <p className="text-blue-100/70 text-sm max-w-[240px]">Get instant feedback on your charts and psychology.</p>
-                                </div>
-                                <button
-                                    onClick={() => router.push('/ai')}
-                                    className="mt-8 flex items-center justify-center w-full py-4 bg-white text-blue-900 font-black text-sm uppercase rounded-2xl hover:bg-blue-50 transition-all shadow-xl shadow-blue-950/20 active:scale-95"
-                                >
-                                    <MessageSquare className="mr-2" size={18} />
-                                    Consult Mentor
-                                </button>
-                            </div>
-                        </motion.div>
+                {/* Hero */}
+                <section className="mb-12">
+                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-10">
+                        <p className="text-sm font-semibold mb-2" style={{ color: '#7B3FE4' }}>
+                            👋 Welcome back
+                        </p>
+                        <h1 className="text-4xl md:text-5xl font-black leading-tight" style={{ fontFamily: 'Outfit, sans-serif', letterSpacing: '-0.03em' }}>
+                            Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'},{' '}
+                            <span style={{ background: 'linear-gradient(135deg, #7B3FE4 0%, #2AA9FF 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                                {firstName}
+                            </span>
+                        </h1>
+                        <p className="mt-3 text-lg" style={{ color: '#7B8CA6' }}>
+                            Continue your path to professional trading mastery.
+                        </p>
+                    </motion.div>
 
+                    {/* Hero Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        {/* AI Mentor Card */}
                         <motion.div
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: 0.1 }}
-                            className="group relative overflow-hidden rounded-[2.5rem] bg-slate-900 border border-white/5 p-8"
+                            className="relative overflow-hidden rounded-[1.75rem] p-8 cursor-pointer group"
+                            style={{
+                                background: 'linear-gradient(135deg, #3B2070 0%, #1A0F3E 60%, #0D1A3A 100%)',
+                                border: '1px solid rgba(123,63,228,0.3)',
+                                boxShadow: '0 20px 60px rgba(123,63,228,0.2)'
+                            }}
+                            onClick={() => router.push('/ai')}
                         >
-                            <div className="absolute bottom-0 right-0 w-48 h-48 bg-emerald-500/5 rounded-full blur-3xl -mr-10 -mb-10" />
-                            <div className="relative z-10 h-full flex flex-col justify-between">
-                                <div className="space-y-4">
-                                    <span className="px-4 py-1.5 bg-emerald-500/10 rounded-full text-[10px] font-black uppercase tracking-widest text-emerald-500 border border-emerald-500/20">
-                                        QUICK START
-                                    </span>
-                                    <h3 className="text-3xl font-bold leading-tight">Your Progress <br /> Academy</h3>
-                                    <p className="text-slate-500 text-sm max-w-[240px]">Resume your path to professional fund management.</p>
+                            <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full opacity-20 group-hover:opacity-30 transition-opacity duration-700"
+                                style={{ background: 'radial-gradient(circle, #7B3FE4 0%, transparent 70%)' }} />
+                            <div className="absolute bottom-0 left-0 w-full h-1/2 opacity-30"
+                                style={{ background: 'linear-gradient(to top, rgba(123,63,228,0.15), transparent)' }} />
+
+                            <div className="relative z-10">
+                                <div className="flex items-center gap-2 mb-6">
+                                    <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(168,123,255,0.2)' }}>
+                                        <Brain size={18} style={{ color: '#A87BFF' }} />
+                                    </div>
+                                    <span className="text-xs font-black uppercase tracking-widest" style={{ color: '#A87BFF' }}>AI MENTOR ACTIVE</span>
                                 </div>
-                                <button onClick={(e) => handleFeatureSoon(e, 'View Modules')} className="mt-8 flex items-center justify-center w-full py-4 bg-slate-800 text-white font-black text-sm uppercase rounded-2xl hover:bg-slate-700 transition-all border border-white/5 active:scale-95">
-                                    <BookOpen className="mr-2" size={18} />
-                                    View Modules
+                                <h3 className="text-2xl font-bold text-white leading-tight mb-3">
+                                    Master Markets<br />with AI Guidance
+                                </h3>
+                                <p className="text-sm mb-8" style={{ color: 'rgba(168,123,255,0.7)' }}>
+                                    Get instant feedback on charts, market structure & trading psychology.
+                                </p>
+                                <button className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold text-white transition-all"
+                                    style={{ background: 'linear-gradient(135deg, #7B3FE4, #5B2DB0)', boxShadow: '0 4px 20px rgba(123,63,228,0.4)' }}>
+                                    <MessageSquare size={16} />
+                                    Consult AI Mentor
+                                    <ChevronRight size={16} />
                                 </button>
+                            </div>
+                        </motion.div>
+
+                        {/* Progress Card */}
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.15 }}
+                            className="relative overflow-hidden rounded-[1.75rem] p-8"
+                            style={{ background: '#111A2F', border: '1px solid rgba(42,169,255,0.15)' }}
+                        >
+                            <div className="absolute -bottom-6 -right-6 w-32 h-32 rounded-full"
+                                style={{ background: 'radial-gradient(circle, rgba(42,169,255,0.12) 0%, transparent 70%)' }} />
+                            <div className="relative z-10 h-full flex flex-col justify-between">
+                                <div>
+                                    <div className="flex items-center gap-2 mb-6">
+                                        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(42,169,255,0.15)' }}>
+                                            <TrendingUp size={18} style={{ color: '#2AA9FF' }} />
+                                        </div>
+                                        <span className="text-xs font-black uppercase tracking-widest" style={{ color: '#2AA9FF' }}>YOUR PROGRESS</span>
+                                    </div>
+                                    <h3 className="text-2xl font-bold text-white leading-tight mb-5">
+                                        Skill Matrix
+                                    </h3>
+                                    <div className="space-y-4">
+                                        {[
+                                            { label: 'Technical Analysis', val: 78, color: '#7B3FE4' },
+                                            { label: 'Risk Management', val: 92, color: '#10B981' },
+                                            { label: 'Psychology', val: 65, color: '#2AA9FF' }
+                                        ].map(skill => (
+                                            <div key={skill.label}>
+                                                <div className="flex justify-between text-xs mb-1.5">
+                                                    <span style={{ color: '#7B8CA6' }}>{skill.label}</span>
+                                                    <span className="font-bold" style={{ color: skill.color }}>{skill.val}%</span>
+                                                </div>
+                                                <div className="h-1.5 rounded-full" style={{ background: 'rgba(255,255,255,0.06)' }}>
+                                                    <div className="h-full rounded-full transition-all duration-1000"
+                                                        style={{ width: `${skill.val}%`, background: `linear-gradient(90deg, ${skill.color}, ${skill.color}88)` }} />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 mt-6 pt-4" style={{ borderTop: '1px solid rgba(42,169,255,0.1)' }}>
+                                    <Award size={16} style={{ color: '#F9A825' }} />
+                                    <span className="text-xs font-semibold" style={{ color: '#7B8CA6' }}>Global rank: <strong className="text-white">#1,242</strong></span>
+                                </div>
                             </div>
                         </motion.div>
                     </div>
                 </section>
 
-                {/* Stats & Progress */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    <div className="lg:col-span-2 space-y-8">
-                        <div className="flex items-center justify-between">
-                            <h2 className="text-2xl font-bold flex items-center">
-                                <Play className="mr-3 text-primary" size={20} />
-                                Current Courses
-                            </h2>
-                            <button onClick={(e) => handleFeatureSoon(e, 'View All Courses')} className="text-primary text-sm font-bold hover:underline">View All</button>
-                        </div>
+                {/* Quick Stats */}
+                <section className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12">
+                    {[
+                        { icon: BookOpen, label: 'Courses', value: courses.length, color: '#7B3FE4', sub: 'available' },
+                        { icon: Play, label: 'In Progress', value: 0, color: '#2AA9FF', sub: 'lessons' },
+                        { icon: Award, label: 'Completed', value: 0, color: '#10B981', sub: 'lessons' },
+                        { icon: Brain, label: 'AI Sessions', value: '∞', color: '#F59E0B', sub: 'unlimited' },
+                    ].map(({ icon: Icon, label, value, color, sub }) => (
+                        <motion.div
+                            key={label}
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="glass-card p-5 text-center"
+                        >
+                            <div className="w-10 h-10 rounded-xl mx-auto mb-3 flex items-center justify-center" style={{ background: `${color}20` }}>
+                                <Icon size={20} style={{ color }} />
+                            </div>
+                            <p className="text-2xl font-black text-white">{value}</p>
+                            <p className="text-xs font-semibold mt-0.5" style={{ color }}>{label}</p>
+                            <p className="text-[10px] mt-0.5" style={{ color: '#3D4D63' }}>{sub}</p>
+                        </motion.div>
+                    ))}
+                </section>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {isLoading ? (
-                                <div className="col-span-2 py-12 flex justify-center items-center text-slate-500">
-                                    <Loader2 className="animate-spin mr-3 text-primary" size={24} />
-                                    Loading your academy content...
-                                </div>
-                            ) : courses.length === 0 ? (
-                                <div className="glass-card col-span-2 hover:border-primary/50 transition-all p-12 text-center space-y-4 border-dashed border-2 border-slate-800">
-                                    <div className="w-16 h-16 bg-slate-900 rounded-full flex items-center justify-center mx-auto text-slate-700">
-                                        <BookOpen size={32} />
-                                    </div>
-                                    <div>
-                                        <h3 className="text-white font-bold text-lg">Нет доступных курсов</h3>
-                                        <p className="text-slate-500 text-sm mt-1">Курсы пока не добавлены администратором.</p>
-                                    </div>
-                                </div>
-                            ) : (
-                                courses.map(course => (
-                                    <div key={course.id} onClick={(e) => handleFeatureSoon(e, 'Course Details')} className="glass-card flex flex-col justify-between hover:border-primary/50 transition-all group overflow-hidden cursor-pointer h-full">
-                                        <div className="h-32 bg-slate-900 relative overflow-hidden shrink-0">
-                                            <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-900 group-hover:scale-105 transition-transform duration-700" />
-                                            <div className="absolute inset-0 bg-gradient-to-t from-slate-950 to-transparent" />
-                                            <div className="absolute bottom-3 left-4 flex gap-2">
-                                                <span className={cn(
-                                                    "px-2 py-1 text-[10px] font-bold rounded uppercase tracking-wider",
-                                                    course.level === 'Beginner' ? "bg-emerald-500 text-slate-950" :
-                                                        course.level === 'Intermediate' ? "bg-amber-500 text-slate-950" :
-                                                            "bg-red-500 text-white"
-                                                )}>{course.level}</span>
-                                                <span className="px-2 py-1 bg-primary text-[10px] font-bold rounded uppercase tracking-wider text-white">
-                                                    {course.language}
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
-                                            <div>
-                                                <h3 className="font-bold text-lg leading-tight line-clamp-2">{course.title}</h3>
-                                                <p className="text-slate-400 text-xs mt-2 line-clamp-2">{course.description || "No description provided."}</p>
-                                            </div>
-                                            <div className="space-y-2 pt-4 mt-auto">
-                                                <div className="flex justify-between text-xs text-slate-500">
-                                                    <span>Progress / Draft</span>
-                                                    <span>0%</span>
-                                                </div>
-                                                <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-                                                    <div className="h-full bg-primary rounded-full transition-all duration-1000" style={{ width: '0%' }} />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Performance Sidebar */}
-                    <div className="space-y-8">
-                        <h2 className="text-2xl font-bold flex items-center">
-                            <TrendingUp className="mr-3 text-accent" size={20} />
-                            Performance
+                {/* Courses Section */}
+                <section>
+                    <div className="flex items-center justify-between mb-6">
+                        <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                            <BookOpen size={20} style={{ color: '#7B3FE4' }} />
+                            Available Courses
                         </h2>
-                        <div className="glass-card p-6 space-y-8">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Global Rank</p>
-                                    <p className="text-3xl font-bold mt-1">#1,242</p>
-                                </div>
-                                <div className="w-12 h-12 bg-accent/10 rounded-2xl flex items-center justify-center text-accent">
-                                    <Award size={28} />
-                                </div>
-                            </div>
+                        <span className="text-xs px-3 py-1 rounded-full badge-purple font-bold">{courses.length} courses</span>
+                    </div>
 
-                            <div className="space-y-4">
-                                <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Skill Matrix</p>
-                                <div className="space-y-3">
-                                    {[
-                                        { label: 'Technical Analysis', val: 78, color: 'primary' },
-                                        { label: 'Risk Management', val: 92, color: 'accent' },
-                                        { label: 'Psychology', val: 65, color: 'amber-500' }
-                                    ].map((skill, i) => (
-                                        <div key={i} className="space-y-1.5">
-                                            <div className="flex justify-between text-[11px]">
-                                                <span className="text-slate-300">{skill.label}</span>
-                                                <span className={`text-${skill.color}`}>{skill.val}%</span>
+                    {isLoading ? (
+                        <div className="flex items-center justify-center py-20 gap-3" style={{ color: '#7B8CA6' }}>
+                            <Loader2 size={24} className="animate-spin" style={{ color: '#7B3FE4' }} />
+                            Loading your academy...
+                        </div>
+                    ) : courses.length === 0 ? (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="glass-card p-16 text-center"
+                            style={{ border: '2px dashed rgba(123,63,228,0.2)' }}
+                        >
+                            <div className="w-16 h-16 rounded-2xl mx-auto mb-5 flex items-center justify-center"
+                                style={{ background: 'rgba(123,63,228,0.1)', boxShadow: '0 0 30px rgba(123,63,228,0.15)' }}>
+                                <BookOpen size={32} style={{ color: '#7B3FE4' }} />
+                            </div>
+                            <h3 className="text-xl font-bold text-white mb-2">Нет доступных курсов</h3>
+                            <p className="text-sm" style={{ color: '#7B8CA6' }}>Курсы пока не добавлены администратором.</p>
+                            <p className="text-sm mt-1" style={{ color: '#3D4D63' }}>Пока что ты можешь использовать AI Mentor!</p>
+                            <button
+                                onClick={() => router.push('/ai')}
+                                className="mt-6 px-6 py-3 text-white font-bold rounded-xl text-sm transition-all"
+                                style={{ background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)', boxShadow: '0 4px 20px rgba(123,63,228,0.35)' }}
+                            >
+                                <Brain size={16} className="inline-block mr-2" />
+                                Open AI Mentor
+                            </button>
+                        </motion.div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                            {courses.map((course, i) => (
+                                <motion.div
+                                    key={course.id}
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: i * 0.06 }}
+                                    className="glass-card overflow-hidden cursor-pointer group"
+                                    onClick={() => showToast('Course player — coming soon!')}
+                                >
+                                    {/* Course header */}
+                                    <div className="h-28 relative overflow-hidden"
+                                        style={{ background: `linear-gradient(135deg, ${['#3B1F7A', '#0F3460', '#1A3A2A', '#3A1A0F'][i % 4]} 0%, #0B1220 100%)` }}>
+                                        <div className="absolute inset-0 flex items-center justify-center opacity-10 group-hover:opacity-15 transition-opacity">
+                                            <BarChart2 size={80} />
+                                        </div>
+                                        <div className="absolute bottom-3 left-4 flex gap-2">
+                                            {course.category && (
+                                                <span className="badge-purple px-2.5 py-1 rounded-full text-[10px] font-black uppercase">{course.category}</span>
+                                            )}
+                                            <span className={cn(
+                                                "px-2.5 py-1 rounded-full text-[10px] font-black uppercase",
+                                                course.level === 'Beginner' ? "badge-green" : course.level === 'Intermediate' ? "badge-amber" : "badge-blue"
+                                            )}>{course.level || 'Beginner'}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Course body */}
+                                    <div className="p-5">
+                                        <h3 className="font-bold text-white leading-tight line-clamp-2 mb-1">{course.title}</h3>
+                                        <p className="text-xs line-clamp-2 mb-5" style={{ color: '#7B8CA6' }}>
+                                            {course.description || 'Professional trading course material'}
+                                        </p>
+                                        <div className="flex items-center justify-between">
+                                            <div className="text-xs" style={{ color: '#3D4D63' }}>
+                                                {course.lessons_count || 0} lessons
                                             </div>
-                                            <div className="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
-                                                <div className={`h-full bg-${skill.color} rounded-full`} style={{ width: `${skill.val}%` }} />
+                                            <div className="flex items-center gap-1.5 text-xs font-bold" style={{ color: '#7B3FE4' }}>
+                                                <Play size={12} fill="currentColor" />
+                                                Start
+                                                <ChevronRight size={12} />
                                             </div>
                                         </div>
-                                    ))}
-                                </div>
-                            </div>
+                                        {/* Progress bar */}
+                                        <div className="mt-4">
+                                            <div className="h-1 w-full rounded-full" style={{ background: 'rgba(123,63,228,0.15)' }}>
+                                                <div className="h-full rounded-full" style={{ width: '0%', background: 'linear-gradient(90deg, #7B3FE4, #2AA9FF)' }} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            ))}
                         </div>
-                    </div>
-                </div>
+                    )}
+                </section>
             </main>
 
-            {/* Floating Action Component for AI Chat */}
+            {/* Floating AI button */}
             <div className="fixed bottom-8 right-8 z-50">
                 <button
                     onClick={() => router.push('/ai')}
-                    className="w-16 h-16 bg-primary rounded-full shadow-2xl shadow-primary/40 flex items-center justify-center text-white hover:scale-110 transition-all active:scale-95 group relative"
+                    className="w-16 h-16 rounded-full flex items-center justify-center text-white shadow-2xl group transition-all hover:scale-110 active:scale-95 relative"
+                    style={{ background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)', boxShadow: '0 8px 40px rgba(123,63,228,0.5)' }}
                 >
-                    <MessageSquare size={28} />
-                    <div className="absolute right-full mr-4 bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-sm font-bold opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                        Ask TradeMentor AI
+                    <Brain size={26} />
+                    <div className="absolute right-full mr-4 px-3 py-2 rounded-xl text-sm font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition-all pointer-events-none"
+                        style={{ background: '#111A2F', border: '1px solid rgba(123,63,228,0.3)' }}>
+                        Ask AI Mentor
                     </div>
+                    {/* Pulse ring */}
+                    <div className="absolute inset-0 rounded-full animate-pulse-ring" style={{ border: '2px solid rgba(123,63,228,0.4)' }} />
                 </button>
             </div>
         </div>

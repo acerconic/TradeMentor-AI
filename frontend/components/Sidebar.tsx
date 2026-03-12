@@ -2,17 +2,19 @@
 
 import React from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import {
     LayoutDashboard,
     Users,
     BookOpen,
     History,
-    Settings,
     LogOut,
     ChevronRight,
     ShieldCheck,
-    MessageSquare
+    MessageSquare,
+    Library,
+    Zap
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Cookies from 'js-cookie';
@@ -21,6 +23,7 @@ const menuItems = [
     { icon: LayoutDashboard, label: 'Dashboard', href: '/admin' },
     { icon: Users, label: 'Students', href: '/admin/students' },
     { icon: BookOpen, label: 'Courses', href: '/admin/courses' },
+    { icon: Library, label: 'Import Library', href: '/admin/import' },
     { icon: MessageSquare, label: 'AI Responses', href: '/admin/ai' },
     { icon: History, label: 'Audit Logs', href: '/admin/logs' },
 ];
@@ -36,55 +39,67 @@ export default function Sidebar() {
     };
 
     return (
-        <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col h-screen sticky top-0">
-            <div className="p-6">
-                <div className="flex items-center space-x-2 text-primary font-bold text-xl mb-8">
-                    <ShieldCheck size={28} />
-                    <span>Admin Panel</span>
+        <aside className="w-64 flex flex-col h-screen sticky top-0" style={{ background: '#080F1E', borderRight: '1px solid rgba(123,63,228,0.15)' }}>
+            {/* Logo */}
+            <div className="p-6 pb-4">
+                <div className="flex items-center space-x-3 mb-8">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-600 to-blue-500 flex items-center justify-center shadow-lg" style={{ boxShadow: '0 0 20px rgba(123,63,228,0.5)' }}>
+                        <Zap size={20} className="text-white" fill="white" />
+                    </div>
+                    <div>
+                        <p className="font-black text-white text-sm leading-none" style={{ fontFamily: 'Outfit, sans-serif' }}>TradeMentor</p>
+                        <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#7B3FE4' }}>Admin Panel</p>
+                    </div>
                 </div>
 
                 <nav className="space-y-1">
                     {menuItems.map((item) => {
-                        const isActive = pathname === item.href;
+                        const isActive = pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href));
                         return (
                             <Link
                                 key={item.href}
                                 href={item.href}
                                 className={cn(
-                                    "flex items-center justify-between px-4 py-3 rounded-xl transition-all group",
+                                    "flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all group text-sm",
                                     isActive
-                                        ? "bg-primary text-white shadow-lg shadow-primary/20"
-                                        : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                                        ? "text-white font-semibold"
+                                        : "text-slate-500 hover:text-slate-200 hover:bg-white/5"
                                 )}
+                                style={isActive ? {
+                                    background: 'linear-gradient(135deg, rgba(123,63,228,0.2) 0%, rgba(42,169,255,0.1) 100%)',
+                                    border: '1px solid rgba(123,63,228,0.3)',
+                                    boxShadow: '0 0 20px rgba(123,63,228,0.1)'
+                                } : {}}
                             >
                                 <div className="flex items-center space-x-3">
-                                    <item.icon size={20} />
-                                    <span className="font-medium">{item.label}</span>
+                                    <item.icon size={18} className={isActive ? '' : ''} style={{ color: isActive ? '#A87BFF' : undefined }} />
+                                    <span>{item.label}</span>
                                 </div>
-                                {isActive && <ChevronRight size={16} />}
+                                {isActive && <ChevronRight size={14} style={{ color: '#7B3FE4' }} />}
                             </Link>
                         );
                     })}
                 </nav>
             </div>
 
-            <div className="mt-auto p-6 border-t border-slate-800 space-y-4">
-                <div className="flex items-center space-x-3 px-2">
-                    <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-primary font-bold">
+            {/* Bottom */}
+            <div className="mt-auto p-5" style={{ borderTop: '1px solid rgba(123,63,228,0.1)' }}>
+                <div className="flex items-center space-x-3 mb-4 px-1">
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm" style={{ background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)' }}>
                         A
                     </div>
                     <div>
                         <p className="text-sm font-semibold text-white">Superadmin</p>
-                        <p className="text-xs text-slate-500 italic">Access: All</p>
+                        <p className="text-[10px]" style={{ color: '#7B3FE4' }}>Full Access</p>
                     </div>
                 </div>
 
                 <button
                     onClick={handleLogout}
-                    className="w-full flex items-center space-x-3 px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl transition-all"
+                    className="w-full flex items-center space-x-3 px-3.5 py-2.5 text-red-400 hover:bg-red-500/10 rounded-xl transition-all text-sm font-medium"
                 >
-                    <LogOut size={20} />
-                    <span className="font-medium">Logout</span>
+                    <LogOut size={18} />
+                    <span>Sign Out</span>
                 </button>
             </div>
         </aside>

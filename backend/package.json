@@ -7,6 +7,7 @@
     "dev": "ts-node --transpile-only src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
+    "migrate:v2": "ts-node --transpile-only migrate_v2.ts",
     "db:init": "node -e \"require('dotenv').config(); const {Pool}=require('pg'); const fs=require('fs'); const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}}); p.query(fs.readFileSync('../database/init.sql','utf8')).then(()=>{console.log('DB initialized!');p.end()}).catch(e=>{console.error(e);p.end();})\""
   },
   "keywords": [],

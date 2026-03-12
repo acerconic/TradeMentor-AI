@@ -37,16 +37,16 @@ export default function AdminLayout({
 
     if (!isAuthorized) {
         return (
-            <div className="h-screen w-screen bg-slate-950 flex items-center justify-center">
-                <Loader2 className="animate-spin text-primary" size={48} />
+            <div className="h-screen w-screen flex items-center justify-center" style={{ background: '#0B1220' }}>
+                <Loader2 className="animate-spin" size={48} style={{ color: '#7B3FE4' }} />
             </div>
         );
     }
 
     return (
-        <div className="flex bg-slate-950 min-h-screen">
+        <div className="flex min-h-screen" style={{ background: '#0B1220' }}>
             <Sidebar />
-            <main className="flex-1 p-8 overflow-y-auto">
+            <main className="flex-1 p-8 overflow-y-auto" style={{ minHeight: '100vh' }}>
                 {children}
             </main>
         </div>

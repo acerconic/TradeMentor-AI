@@ -3,6 +3,9 @@ import { query } from '../config/db'
 import argon2 from 'argon2'
 import z from 'zod'
 import crypto from 'crypto'
+import path from 'path'
+import fs from 'fs'
+import { ingestPdf, scanLibrary } from '../services/ingestionService'
 
 const CreateUserSchema = z.object({
     name: z.string().min(2),
@@ -144,6 +147,99 @@ export default async function adminRoutes(server: FastifyInstance) {
             } catch (err) {
                 server.log.error(err)
                 return reply.status(500).send({ error: 'Failed to fetch stats' })
+            }
+        }
+    )
+    // ── POST /admin/import-pdf (Upload + ingest a single PDF) ──────
+    server.post(
+        '/import-pdf',
+        { preValidation: [server.authenticate, requireSuperadmin] },
+        async (request: any, reply) => {
+            try {
+                if (!request.isMultipart()) {
+                    return reply.status(400).send({ error: 'Multipart request required' });
+                }
+
+                const uploadDir = path.resolve(process.cwd(), '..', 'data', 'uploads');
+                if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+                let filePath = '';
+                let originalName = '';
+
+                const parts = request.parts();
+                for await (const part of parts) {
+                    if (part.type === 'file' && part.mimetype === 'application/pdf') {
+                        originalName = part.filename;
+                        filePath = path.join(uploadDir, `${Date.now()}_${originalName}`);
+                        const buffer = await part.toBuffer();
+                        fs.writeFileSync(filePath, buffer);
+                    } else {
+                        await part.toBuffer(); // consume
+                    }
+                }
+
+                if (!filePath) {
+                    return reply.status(400).send({ error: 'No PDF file uploaded' });
+                }
+
+                // Non-blocking ingestion - start and return immediately 
+                const result = await ingestPdf(filePath, originalName, server.log);
+
+                return {
+                    success: result.success,
+                    course_id: result.course_id,
+                    course_title: result.course_title,
+                    lesson_id: result.lesson_id,
+                    lesson_title: result.lesson_title,
+                    category: result.category,
+                    material_id: result.material_id,
+                    error: result.error
+                };
+            } catch (err: any) {
+                server.log.error(err);
+                return reply.status(500).send({ error: 'PDF ingestion failed', details: err.message });
+            }
+        }
+    )
+
+    // ── POST /admin/import-library (Scan & ingest data/library folder) ──
+    server.post(
+        '/import-library',
+        { preValidation: [server.authenticate, requireSuperadmin] },
+        async (request: any, reply) => {
+            try {
+                server.log.info('[Admin] Starting library scan...');
+                const result = await scanLibrary(server.log);
+                return {
+                    message: `Processed ${result.processed}/${result.total} PDFs (${result.failed} failed)`,
+                    total: result.total,
+                    processed: result.processed,
+                    failed: result.failed,
+                    results: result.results
+                };
+            } catch (err: any) {
+                server.log.error(err);
+                return reply.status(500).send({ error: 'Library scan failed', details: err.message });
+            }
+        }
+    )
+
+    // ── GET /admin/materials (List all uploaded materials) ──────────
+    server.get(
+        '/materials',
+        { preValidation: [server.authenticate, requireSuperadmin] },
+        async (request: any, reply) => {
+            try {
+                const result = await query(
+                    `SELECT id, original_name, detected_category, status, error_message, course_id, lesson_id, created_at
+                     FROM uploaded_materials
+                     ORDER BY created_at DESC
+                     LIMIT 100`
+                );
+                return result.rows;
+            } catch (err: any) {
+                // Table may not exist yet
+                return [];
             }
         }
     )
