@@ -168,7 +168,14 @@ export default async function adminRoutes(server: FastifyInstance) {
 
                 const parts = request.parts();
                 for await (const part of parts) {
-                    if (part.type === 'file' && part.mimetype === 'application/pdf') {
+                    const looksLikePdf =
+                        (part.type === 'file') &&
+                        (
+                            part.mimetype === 'application/pdf' ||
+                            String(part.filename || '').toLowerCase().endsWith('.pdf')
+                        );
+
+                    if (looksLikePdf) {
                         originalName = part.filename;
                         filePath = path.join(uploadDir, `${Date.now()}_${originalName}`);
                         const buffer = await part.toBuffer();
@@ -182,7 +189,7 @@ export default async function adminRoutes(server: FastifyInstance) {
                     return reply.status(400).send({ error: 'No PDF file uploaded' });
                 }
 
-                // Non-blocking ingestion - start and return immediately 
+                // Ingestion runs in-request for now (stable + returns created ids)
                 const result = await ingestPdf(filePath, originalName, server.log);
 
                 return {
@@ -211,9 +218,10 @@ export default async function adminRoutes(server: FastifyInstance) {
                 server.log.info('[Admin] Starting library scan...');
                 const result = await scanLibrary(server.log);
                 return {
-                    message: `Processed ${result.processed}/${result.total} PDFs (${result.failed} failed)`,
+                    message: `Processed ${result.processed}/${result.total} PDFs (${result.skipped} skipped, ${result.failed} failed)`,
                     total: result.total,
                     processed: result.processed,
+                    skipped: result.skipped,
                     failed: result.failed,
                     results: result.results
                 };

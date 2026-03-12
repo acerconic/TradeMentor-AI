@@ -103,15 +103,20 @@ export default function StudentDashboard() {
 
                 <div className="hidden md:flex items-center gap-1">
                     {[
-                        { label: t('common.academy'), active: true, href: '/dashboard' },
-                        { label: t('common.progress'), active: false },
-                        { label: t('common.signals'), active: false, soon: true },
+                        { label: t('common.academy'), active: true, href: '/dashboard/academy' },
+                        { label: t('common.progress'), active: false, href: '/dashboard/profile' },
+                        // Signals is not part of Stage A: disable without "coming soon" toast
+                        { label: t('common.signals'), active: false, disabled: true },
                     ].map(item => (
                         <button
                             key={item.label}
-                            onClick={() => item.href ? router.push(item.href) : showToast(`${item.label} — coming soon!`)}
+                            onClick={() => {
+                                if (item.disabled) return;
+                                if (item.href) router.push(item.href);
+                            }}
+                            disabled={(item as any).disabled}
                             className={cn(
-                                "px-4 py-2 rounded-xl text-sm font-medium transition-all text-slate-400 hover:text-white"
+                                "px-4 py-2 rounded-xl text-sm font-medium transition-all text-slate-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
                             )}
                             style={item.active ? {
                                 background: 'linear-gradient(135deg, rgba(123,63,228,0.2), rgba(42,169,255,0.1))',
@@ -120,7 +125,6 @@ export default function StudentDashboard() {
                             } : {}}
                         >
                             {item.label}
-                            {item.soon && <span className="ml-1.5 text-[9px] font-black badge-amber px-1 py-0.5 rounded-full">{t('common.soon')}</span>}
                         </button>
                     ))}
                 </div>
@@ -364,7 +368,7 @@ export default function StudentDashboard() {
                                     animate={{ opacity: 1, y: 0 }}
                                     transition={{ delay: i * 0.06 }}
                                     className="glass-card overflow-hidden cursor-pointer group"
-                                    onClick={() => showToast('Course player — coming soon!')}
+                                    onClick={() => router.push(`/dashboard/courses/${course.id}`)}
                                 >
                                     {/* Course header */}
                                     <div className="h-28 relative overflow-hidden"

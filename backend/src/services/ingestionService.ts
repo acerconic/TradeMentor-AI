@@ -12,7 +12,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { query } from '../config/db';
+import { pool, query } from '../config/db';
 import { openRouterService } from '../ai/openrouter';
 import { FastifyBaseLogger } from 'fastify';
 
@@ -34,6 +34,42 @@ interface IngestionResult {
     category?: string;
     material_id?: string;
     error?: string;
+}
+
+type PgClient = {
+    query: (text: string, params?: any[]) => Promise<any>;
+};
+
+function isPgUndefinedColumnError(e: any): boolean {
+    return e?.code === '42703' || String(e?.message || '').toLowerCase().includes('column') && String(e?.message || '').toLowerCase().includes('does not exist');
+}
+
+async function withTransaction<T>(fn: (client: PgClient) => Promise<T>): Promise<T> {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const result = await fn(client);
+        await client.query('COMMIT');
+        return result;
+    } catch (e) {
+        try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+        throw e;
+    } finally {
+        client.release();
+    }
+}
+
+function normalizeClassification(input: Partial<AIClassification>, fallbackName: string): AIClassification {
+    const safe = (v: any) => String(v ?? '').replace(/\s+/g, ' ').trim();
+    const clamp = (s: string, max: number) => (s.length > max ? s.slice(0, max) : s);
+
+    const category = clamp(safe(input.category) || 'Other', 100);
+    const course_title = clamp(safe(input.course_title) || `${category} Trading Mastery`, 50);
+    const module_title = clamp(safe(input.module_title) || 'Core Concepts', 50);
+    const lesson_title = clamp(safe(input.lesson_title) || safe(fallbackName).replace(/\.pdf$/i, ''), 60);
+    const summary = clamp(safe(input.summary) || `A comprehensive guide on ${lesson_title} for professional traders.`, 1000);
+
+    return { category, course_title, module_title, lesson_title, summary };
 }
 
 // ── PDF Text Extraction ──────────────────────────────────────
@@ -113,7 +149,7 @@ Return ONLY this JSON (no markdown, no explanation):
                 throw new Error('Missing required classification fields');
             }
 
-            return parsed;
+            return normalizeClassification(parsed, originalFileName);
         } catch (e: any) {
             lastError = e.message;
             if (log) log.warn(`Classification failed for model ${model}: ${e.message}`);
@@ -122,7 +158,7 @@ Return ONLY this JSON (no markdown, no explanation):
 
     // Fallback: classify from filename
     if (log) log.warn(`AI classification failed, using filename fallback. Last error: ${lastError}`);
-    return classifyFromFilename(originalFileName);
+    return normalizeClassification(classifyFromFilename(originalFileName), originalFileName);
 }
 
 // ── Filename Fallback Classifier ─────────────────────────────
@@ -153,83 +189,125 @@ async function upsertCourseModuleLesson(
     classification: AIClassification,
     pdfPath: string
 ): Promise<{ course_id: string; module_id: string; lesson_id: string }> {
+    return withTransaction(async (client) => {
+        // Guard against concurrent imports producing duplicates.
+        // Uses advisory locks (no schema changes required).
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`course:${classification.course_title.toLowerCase()}`]);
 
-    // 1. Find or create course by title
-    let courseId: string;
-    const existingCourse = await query(
-        `SELECT id FROM courses WHERE LOWER(title) = LOWER($1) LIMIT 1`,
-        [classification.course_title]
-    );
-
-    if (existingCourse.rows.length > 0) {
-        courseId = existingCourse.rows[0].id;
-    } else {
-        const newCourse = await query(
-            `INSERT INTO courses (id, title, description, category, level, language, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW()) RETURNING id`,
-            [
-                crypto.randomUUID(),
-                classification.course_title,
-                classification.summary,
-                classification.category,
-                'Beginner',
-                'RU'
-            ]
+        // 1. Find or create course by title
+        let courseId: string;
+        const existingCourse = await client.query(
+            `SELECT id FROM courses WHERE LOWER(title) = LOWER($1) LIMIT 1`,
+            [classification.course_title]
         );
-        courseId = newCourse.rows[0].id;
-    }
 
-    // 2. Find or create module by title + course_id
-    let moduleId: string;
-    const existingModule = await query(
-        `SELECT id FROM modules WHERE course_id = $1 AND LOWER(title) = LOWER($2) LIMIT 1`,
-        [courseId, classification.module_title]
-    );
+        if (existingCourse.rows.length > 0) {
+            courseId = existingCourse.rows[0].id;
+        } else {
+            const newCourse = await client.query(
+                `INSERT INTO courses (id, title, description, category, level, language, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW()) RETURNING id`,
+                [
+                    crypto.randomUUID(),
+                    classification.course_title,
+                    classification.summary,
+                    classification.category,
+                    'Beginner',
+                    'RU'
+                ]
+            );
+            courseId = newCourse.rows[0].id;
+        }
 
-    if (existingModule.rows.length > 0) {
-        moduleId = existingModule.rows[0].id;
-    } else {
-        // Get current max sort_order
-        const maxPos = await query(
-            `SELECT COALESCE(MAX(sort_order), 0) as max_pos FROM modules WHERE course_id = $1`,
-            [courseId]
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`module:${courseId}:${classification.module_title.toLowerCase()}`]);
+
+        // 2. Find or create module by title + course_id
+        let moduleId: string;
+        const existingModule = await client.query(
+            `SELECT id FROM modules WHERE course_id = $1 AND LOWER(title) = LOWER($2) LIMIT 1`,
+            [courseId, classification.module_title]
         );
-        const newPos = (parseInt(maxPos.rows[0].max_pos) || 0) + 1;
 
-        const newModule = await query(
-            `INSERT INTO modules (id, course_id, title, sort_order, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id`,
-            [crypto.randomUUID(), courseId, classification.module_title, newPos]
+        if (existingModule.rows.length > 0) {
+            moduleId = existingModule.rows[0].id;
+        } else {
+            const maxPos = await client.query(
+                `SELECT COALESCE(MAX(sort_order), 0) as max_pos FROM modules WHERE course_id = $1`,
+                [courseId]
+            );
+            const newPos = (parseInt(maxPos.rows[0].max_pos) || 0) + 1;
+
+            // Keep both sort_order and position in sync where position exists.
+            const newModule = await client.query(
+                `INSERT INTO modules (id, course_id, title, sort_order, position, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4, $4, NOW(), NOW()) RETURNING id`,
+                [crypto.randomUUID(), courseId, classification.module_title, newPos]
+            );
+            moduleId = newModule.rows[0].id;
+        }
+
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`lesson:${moduleId}:${classification.lesson_title.toLowerCase()}`]);
+
+        // 3. Upsert lesson by title within module (idempotent re-import)
+        const existingLesson = await client.query(
+            `SELECT id FROM lessons WHERE module_id = $1 AND LOWER(title) = LOWER($2) LIMIT 1`,
+            [moduleId, classification.lesson_title]
         );
-        moduleId = newModule.rows[0].id;
-    }
 
-    const maxLessonPos = await query(
-        `SELECT COALESCE(MAX(sort_order), 0) as max_pos FROM lessons WHERE module_id = $1`,
-        [moduleId]
-    );
-    const newLessonPos = (parseInt(maxLessonPos.rows[0].max_pos) || 0) + 1;
+        let lessonId: string;
+        if (existingLesson.rows.length > 0) {
+            lessonId = existingLesson.rows[0].id;
+        } else {
+            const maxLessonPos = await client.query(
+                `SELECT COALESCE(MAX(sort_order), 0) as max_pos FROM lessons WHERE module_id = $1`,
+                [moduleId]
+            );
+            const newLessonPos = (parseInt(maxLessonPos.rows[0].max_pos) || 0) + 1;
 
-    const newLesson = await query(
-        `INSERT INTO lessons (id, module_id, title, content, sort_order, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, NOW(), NOW()) RETURNING id`,
-        [
-            crypto.randomUUID(),
-            moduleId,
-            classification.lesson_title,
-            classification.summary,
-            newLessonPos
-        ]
-    );
-    const lessonId = newLesson.rows[0].id;
+            // Prefer inserting with summary/pdf_path when columns exist.
+            try {
+                const newLesson = await client.query(
+                    `INSERT INTO lessons (id, module_id, title, content, summary, pdf_path, sort_order, position, created_at, updated_at)
+                     VALUES ($1, $2, $3, $4, $4, $5, $6, $6, NOW(), NOW()) RETURNING id`,
+                    [
+                        crypto.randomUUID(),
+                        moduleId,
+                        classification.lesson_title,
+                        classification.summary,
+                        pdfPath,
+                        newLessonPos
+                    ]
+                );
+                lessonId = newLesson.rows[0].id;
+            } catch (e: any) {
+                if (!isPgUndefinedColumnError(e)) throw e;
+                const newLesson = await client.query(
+                    `INSERT INTO lessons (id, module_id, title, content, sort_order, created_at, updated_at)
+                     VALUES ($1, $2, $3, $4, $5, NOW(), NOW()) RETURNING id`,
+                    [
+                        crypto.randomUUID(),
+                        moduleId,
+                        classification.lesson_title,
+                        classification.summary,
+                        newLessonPos
+                    ]
+                );
+                lessonId = newLesson.rows[0].id;
+            }
+        }
 
-    // Update lesson with summary and pdf_path (these columns added by self-healing migration)
-    await query(
-        `UPDATE lessons SET summary = $1, pdf_path = $2 WHERE id = $3`,
-        [classification.summary, pdfPath, lessonId]
-    ).catch(() => {/* columns may not exist yet — ignore */ });
+        // Update lesson metadata (safe even on re-import)
+        try {
+            await client.query(
+                `UPDATE lessons SET summary = $1, pdf_path = $2, updated_at = NOW() WHERE id = $3`,
+                [classification.summary, pdfPath, lessonId]
+            );
+        } catch (e: any) {
+            if (!isPgUndefinedColumnError(e)) throw e;
+        }
 
-    return { course_id: courseId, module_id: moduleId, lesson_id: lessonId };
+        return { course_id: courseId, module_id: moduleId, lesson_id: lessonId };
+    });
 }
 
 // ── Main Ingestion Function ───────────────────────────────────
@@ -246,7 +324,7 @@ export async function ingestPdf(
         `INSERT INTO uploaded_materials (id, original_name, stored_path, status, created_at)
          VALUES ($1, $2, $3, 'pending', NOW())`,
         [materialId, originalFileName, filePath]
-    ).catch(() => {/* Table may not exist yet, ignore */ });
+    );
 
     try {
         // 1. Extract PDF text
@@ -290,7 +368,7 @@ export async function ingestPdf(
                 lesson_id,
                 materialId
             ]
-        ).catch(() => { });
+        );
 
         if (log) log.info(`[Ingestion] ✅ Done: ${originalFileName} → Course: ${classification.course_title}`);
 
@@ -310,7 +388,7 @@ export async function ingestPdf(
         await query(
             `UPDATE uploaded_materials SET status = 'failed', error_message = $1 WHERE id = $2`,
             [errMsg, materialId]
-        ).catch(() => { });
+        );
 
         return { success: false, error: errMsg };
     }
@@ -320,6 +398,7 @@ export async function ingestPdf(
 export async function scanLibrary(log?: FastifyBaseLogger): Promise<{
     total: number;
     processed: number;
+    skipped: number;
     failed: number;
     results: IngestionResult[];
 }> {
@@ -341,7 +420,7 @@ export async function scanLibrary(log?: FastifyBaseLogger): Promise<{
 
     if (!libraryDir) {
         if (log) log.warn(`[scanLibrary] Library not found in any of: ${possiblePaths.join(', ')}`);
-        return { total: 0, processed: 0, failed: 0, results: [] };
+        return { total: 0, processed: 0, skipped: 0, failed: 0, results: [] };
     }
 
     if (log) log.info(`[scanLibrary] Using library path: ${libraryDir}`);
@@ -352,6 +431,7 @@ export async function scanLibrary(log?: FastifyBaseLogger): Promise<{
 
     const results: IngestionResult[] = [];
     let processed = 0;
+    let skipped = 0;
     let failed = 0;
 
     for (const file of files) {
@@ -363,6 +443,7 @@ export async function scanLibrary(log?: FastifyBaseLogger): Promise<{
             );
             if (existing.rows.length > 0) {
                 if (log) log.info(`[scanLibrary] Skipping (already processed): ${file}`);
+                skipped++;
                 continue;
             }
         } catch {
@@ -380,5 +461,5 @@ export async function scanLibrary(log?: FastifyBaseLogger): Promise<{
         await new Promise(resolve => setTimeout(resolve, 500));
     }
 
-    return { total: files.length, processed, failed, results };
+    return { total: files.length, processed, skipped, failed, results };
 }

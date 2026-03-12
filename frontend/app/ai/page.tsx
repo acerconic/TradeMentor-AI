@@ -16,6 +16,7 @@ import {
     Loader2
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 
@@ -42,6 +43,7 @@ export default function AIChatPage() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const router = useRouter();
+    const searchParams = useSearchParams();
 
     const showToast = (msg: string) => {
         setToastMessage(msg);
@@ -104,6 +106,18 @@ export default function AIChatPage() {
     useEffect(() => {
         scrollToBottom();
     }, [messages]);
+
+    useEffect(() => {
+        // Prefill from lesson viewer (real action, no dead buttons)
+        const stored = typeof window !== 'undefined' ? localStorage.getItem('ai_prefill') : null;
+        if (stored && stored.trim()) {
+            setInput(stored);
+            localStorage.removeItem('ai_prefill');
+            return;
+        }
+        const q = searchParams.get('q');
+        if (q && q.trim()) setInput(q);
+    }, [searchParams]);
 
     const handleSend = async (e: React.FormEvent) => {
         e.preventDefault();
