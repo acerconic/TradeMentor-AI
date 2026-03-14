@@ -106,7 +106,7 @@ export default function AcademyPage() {
       }
     };
     fetchCourses();
-  }, []);
+  }, [language]);
 
   const toggleCourse = async (courseId: string) => {
     if (expandedCourse === courseId) {

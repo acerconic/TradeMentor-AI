@@ -12,7 +12,25 @@ export const buildServer = async (): Promise<FastifyInstance> => {
     const server = fastify({ logger: true })
 
     // ── Plugins ──────────────────────────────────────────────
-    await server.register(cors, { origin: '*' })
+    const allowedOrigins = new Set([
+        'https://tradementor-ai.netlify.app',
+        'https://tradementor-ai.com',
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+    ])
+
+    await server.register(cors, {
+        origin: (origin, cb) => {
+            // Allow non-browser clients / same-origin server calls.
+            if (!origin) return cb(null, true)
+            if (allowedOrigins.has(origin)) return cb(null, true)
+            return cb(new Error('CORS origin not allowed'), false)
+        },
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-User-Language'],
+        credentials: true,
+        maxAge: 86400,
+    })
     await server.register(multipart, { limits: { fileSize: 100 * 1024 * 1024 } })
 
     await server.register(jwt, {

@@ -764,16 +764,36 @@ export async function scanLibrary(log?: FastifyBaseLogger): Promise<{
     let failed = 0;
 
     for (const file of files) {
-        // Skip if already processed
+        // Skip only when previous processed record has valid linked course+lesson.
+        // If historical record is broken (no links / deleted links), reprocess it.
         try {
             const existing = await query(
-                `SELECT id FROM uploaded_materials WHERE original_name = $1 AND status = 'processed'`,
+                `SELECT id, course_id, lesson_id
+                 FROM uploaded_materials
+                 WHERE original_name = $1 AND status = 'processed'
+                 ORDER BY created_at DESC
+                 LIMIT 1`,
                 [file]
             );
             if (existing.rows.length > 0) {
-                if (log) log.info(`[scanLibrary] Skipping (already processed): ${file}`);
-                skipped++;
-                continue;
+                const row = existing.rows[0];
+
+                const hasLinks = !!row.course_id && !!row.lesson_id;
+                if (hasLinks) {
+                    const [courseExists, lessonExists] = await Promise.all([
+                        query(`SELECT 1 FROM courses WHERE id = $1 LIMIT 1`, [row.course_id]),
+                        query(`SELECT 1 FROM lessons WHERE id = $1 LIMIT 1`, [row.lesson_id]),
+                    ]);
+
+                    const validLinks = courseExists.rows.length > 0 && lessonExists.rows.length > 0;
+                    if (validLinks) {
+                        if (log) log.info(`[scanLibrary] Skipping (already processed): ${file}`);
+                        skipped++;
+                        continue;
+                    }
+                }
+
+                if (log) log.info(`[scanLibrary] Reprocessing broken material links: ${file}`);
             }
         } catch {
             // Table may not exist - proceed

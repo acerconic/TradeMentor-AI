@@ -245,14 +245,6 @@ export async function publicCourseRoutes(server: FastifyInstance) {
             );
             const preferredLanguage = (String(languageRes.rows[0]?.language || 'RU').toUpperCase() === 'UZ') ? 'UZ' : 'RU';
 
-            const matchCountRes = await query(
-                `SELECT COUNT(*)::int AS cnt FROM courses WHERE language = $1`,
-                [preferredLanguage]
-            );
-            const hasPreferredCourses = Number(matchCountRes.rows[0]?.cnt || 0) > 0;
-            const isFallbackLanguage = !hasPreferredCourses;
-
-            const whereSql = hasPreferredCourses ? `WHERE c.language = $2` : '';
             const result = await query(`
                 SELECT
                     c.id,
@@ -262,8 +254,6 @@ export async function publicCourseRoutes(server: FastifyInstance) {
                     c.level,
                     c.language,
                     c.created_at,
-                    $2::text as preferred_language,
-                    $3::boolean as is_fallback_language,
                     COUNT(DISTINCT m.id) as modules_count,
                     COUNT(DISTINCT l.id) as lessons_count,
                     COUNT(DISTINCT CASE WHEN up.is_completed = TRUE THEN l.id END) as completed_lessons,
@@ -275,11 +265,26 @@ export async function publicCourseRoutes(server: FastifyInstance) {
                 LEFT JOIN modules m ON m.course_id = c.id
                 LEFT JOIN lessons l ON l.module_id = m.id
                 LEFT JOIN user_progress up ON up.lesson_id = l.id AND up.user_id = $1
-                ${whereSql}
                 GROUP BY c.id, c.title, c.description, c.category, c.level, c.language, c.created_at
                 ORDER BY c.created_at DESC
-            `, [userId, preferredLanguage, isFallbackLanguage])
-            return result.rows
+            `, [userId])
+
+            const allCourses = result.rows || []
+
+            // Student-facing academy should prefer courses with real lesson structure.
+            const withLessons = allCourses.filter((course: any) => Number(course.lessons_count || 0) > 0)
+            const preferredWithLessons = withLessons.filter(
+                (course: any) => String(course.language || '').toUpperCase() === preferredLanguage
+            )
+
+            const selected = preferredWithLessons.length > 0 ? preferredWithLessons : withLessons
+            const isFallbackLanguage = preferredWithLessons.length === 0 && withLessons.length > 0
+
+            return selected.map((course: any) => ({
+                ...course,
+                preferred_language: preferredLanguage,
+                is_fallback_language: isFallbackLanguage,
+            }))
         } catch (e: any) {
             server.log.error(`[Courses] Public fetch error: ${e.message}`)
             return reply.status(500).send({ error: 'Failed to fetch courses', details: e.message })

@@ -51,7 +51,8 @@ export default function StudentDashboard() {
         const userStr = Cookies.get('user');
         if (userStr) setUser(JSON.parse(userStr));
         fetchCourses();
-    }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [language]);
 
     const showToast = (msg: string) => {
         setToastMessage(msg);
