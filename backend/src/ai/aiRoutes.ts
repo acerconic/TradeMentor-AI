@@ -5,7 +5,15 @@ import { openRouterService } from './openrouter'
 
 const ChatSchema = z.object({
     message: z.string().min(1),
-    image: z.string().optional()
+    image: z.string().optional(),
+    context: z.object({
+        courseId: z.string().optional(),
+        courseTitle: z.string().optional(),
+        lessonId: z.string().optional(),
+        lessonTitle: z.string().optional(),
+        lessonSummary: z.string().optional(),
+        moduleTitle: z.string().optional(),
+    }).optional(),
 })
 
 export default async function aiRoutes(server: FastifyInstance) {
@@ -31,8 +39,21 @@ export default async function aiRoutes(server: FastifyInstance) {
         { preValidation: [server.authenticate] },
         async (request: any, reply) => {
             try {
-                const { message, image } = ChatSchema.parse(request.body)
+                const { message, image, context } = ChatSchema.parse(request.body)
                 const userId = request.user.id
+
+                let userLanguage: 'RU' | 'UZ' = 'RU'
+                let userLevel: 'Beginner' | 'Intermediate' | 'Advanced' = 'Beginner'
+                try {
+                    const userRes = await query(`SELECT language, trading_level FROM users WHERE id = $1 LIMIT 1`, [userId])
+                    const lang = String(userRes.rows[0]?.language || 'RU').toUpperCase()
+                    userLanguage = lang === 'UZ' ? 'UZ' : 'RU'
+                    const levelRaw = String(userRes.rows[0]?.trading_level || 'Beginner')
+                    userLevel = levelRaw === 'Advanced' ? 'Advanced' : levelRaw === 'Intermediate' ? 'Intermediate' : 'Beginner'
+                } catch {
+                    userLanguage = 'RU'
+                    userLevel = 'Beginner'
+                }
 
                 // Validate Image
                 let validatedImage = "";
@@ -61,6 +82,41 @@ export default async function aiRoutes(server: FastifyInstance) {
                     server.log.error(e, 'Library Service Error');
                 }
 
+                let lessonContextText = ''
+                if (context?.lessonId) {
+                    try {
+                        const lessonRes = await query(
+                            `SELECT l.title, l.summary, l.content, m.title AS module_title, c.title AS course_title, c.level AS course_level
+                             FROM lessons l
+                             JOIN modules m ON m.id = l.module_id
+                             JOIN courses c ON c.id = m.course_id
+                             WHERE l.id = $1
+                             LIMIT 1`,
+                            [context.lessonId]
+                        )
+                        if (lessonRes.rows.length) {
+                            const row = lessonRes.rows[0]
+                            const contentSnippet = String(row.content || '').replace(/\s+/g, ' ').substring(0, 1800)
+                            lessonContextText = `
+Current lesson context:
+- Course: ${row.course_title}
+- Module: ${row.module_title}
+- Lesson: ${row.title}
+- Lesson summary: ${row.summary || ''}
+- Lesson content snippet: ${contentSnippet}`
+                        }
+                    } catch (e: any) {
+                        server.log.warn(`Failed to load lesson context: ${e.message}`)
+                    }
+                } else if (context) {
+                    lessonContextText = `
+Current lesson context:
+- Course: ${context.courseTitle || ''}
+- Module: ${context.moduleTitle || ''}
+- Lesson: ${context.lessonTitle || ''}
+- Lesson summary: ${context.lessonSummary || ''}`
+                }
+
                 // System prompt for TradeMentor AI
                 const systemPrompt = `You are TradeMentor AI, a professional trading mentor specializing in SMC, ICT, Price Action, and Psychology.
 You have access to a private library of professional trading books. Use the provided context to answer the student's question accurately.
@@ -72,7 +128,13 @@ Rules:
 1. ONLY answer questions related to trading, finance, and psychology.
 2. If the context contains relevant information, prioritize it.
 3. Use a professional, encouraging mentor tone.
-4. Be concise but deep. When talking about "liquid", always assume "liquidity" in a trading context.`;
+4. Be concise but deep. When talking about "liquid", always assume "liquidity" in a trading context.
+5. Answer language must match student's preferred UI language: ${userLanguage}.
+   - If RU: answer fully in Russian.
+   - If UZ: answer fully in Uzbek (Latin script).
+6. Adjust explanation depth to student level: ${userLevel}.`;
+
+                const finalSystemPrompt = `${systemPrompt}\n\nStudent level: ${userLevel}.${lessonContextText || ''}`;
 
                 // Try Multiple models (Fallback system)
                 const models = [
@@ -99,7 +161,7 @@ Rules:
                     if (successfullyCalled) break;
                     try {
                         const data = await openRouterService.chat(model, [
-                            { role: 'system', content: systemPrompt },
+                            { role: 'system', content: finalSystemPrompt },
                             { role: 'user', content: finalUserContent }
                         ], server);
 
@@ -116,8 +178,19 @@ Rules:
 
                 // Log the AI request to DB
                 await query(
-                    'INSERT INTO ai_requests (user_id, type, message, response, provider) VALUES ($1, $2, $3, $4, $5)',
-                    [userId, 'chat', message + (validatedImage ? " [IMAGE ATTACHED]" : ""), aiMessage, 'openrouter']
+                    'INSERT INTO ai_requests (user_id, type, message, response, provider, metadata) VALUES ($1, $2, $3, $4, $5, $6)',
+                    [
+                        userId,
+                        'chat',
+                        message + (validatedImage ? " [IMAGE ATTACHED]" : ""),
+                        aiMessage,
+                        'openrouter',
+                        JSON.stringify({
+                            language: userLanguage,
+                            level: userLevel,
+                            lessonContext: context || null,
+                        })
+                    ]
                 ).catch(e => server.log.error('DB Log Error:', e));
 
                 // Audit log

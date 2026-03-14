@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Shield,
@@ -15,28 +15,37 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { useSearchParams } from 'next/navigation';
 
-export default function LogsPage() {
+function LogsPageContent() {
     const [logs, setLogs] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
+    const [actionFilter, setActionFilter] = useState<string>('ALL');
+    const [page, setPage] = useState(1);
+    const pageSize = 25;
     const [toastMessage, setToastMessage] = useState<string | null>(null);
+    const searchParams = useSearchParams();
+    const searchParamsValue = searchParams.toString();
 
     const showToast = (msg: string) => {
         setToastMessage(msg);
         setTimeout(() => setToastMessage(null), 3000);
     };
 
-    const handleFeatureSoon = (e: React.MouseEvent, feature: string) => {
-        e.preventDefault();
-        showToast(`${feature} feature is coming soon!`);
-    };
-
-    const fetchLogs = async () => {
+    const fetchLogs = async (override?: { search?: string; action?: string }) => {
         setIsLoading(true);
         try {
-            const res = await api.get('/admin/logs');
+            const params: any = {};
+            const effectiveSearch = (override?.search ?? searchQuery).trim();
+            const effectiveAction = override?.action ?? actionFilter;
+
+            if (effectiveSearch) params.search = effectiveSearch;
+            if (effectiveAction !== 'ALL') params.action = effectiveAction;
+            params.limit = 500;
+            const res = await api.get('/admin/logs', { params });
             setLogs(res.data);
+            setPage(1);
         } catch (e) {
             console.error('Failed to fetch logs', e);
         } finally {
@@ -45,8 +54,24 @@ export default function LogsPage() {
     };
 
     useEffect(() => {
-        fetchLogs();
-    }, []);
+        const presetSearch = searchParams.get('search') || '';
+        setSearchQuery(presetSearch);
+        fetchLogs({ search: presetSearch, action: actionFilter });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParamsValue]);
+
+    const filtered = logs.filter((log) => {
+        const search = searchQuery.trim().toLowerCase();
+        const matchesSearch = !search ||
+            String(log.user_login || '').toLowerCase().includes(search) ||
+            String(log.action || '').toLowerCase().includes(search) ||
+            String(log.details || '').toLowerCase().includes(search);
+        const matchesAction = actionFilter === 'ALL' || String(log.action) === actionFilter;
+        return matchesSearch && matchesAction;
+    });
+
+    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
 
     const getActionColor = (action: string) => {
         switch (action) {
@@ -82,12 +107,12 @@ export default function LogsPage() {
                     <p className="text-slate-400 mt-1">Track system activity and user actions</p>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={(e) => handleFeatureSoon(e, 'Advanced Filtering')} className="flex items-center px-4 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-300 hover:text-white transition-all text-sm">
+                    <button onClick={() => fetchLogs()} className="flex items-center px-4 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-300 hover:text-white transition-all text-sm">
                         <Filter size={16} className="mr-2" />
-                        Filter
+                        Apply Filters
                     </button>
                     <button
-                        onClick={fetchLogs}
+                        onClick={() => fetchLogs()}
                         className="flex items-center px-4 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-300 hover:text-white transition-all text-sm"
                     >
                         <RefreshCw size={16} className={cn("mr-2", isLoading && "animate-spin")} />
@@ -103,9 +128,22 @@ export default function LogsPage() {
                         <input
                             type="text"
                             placeholder="Filter logs by user or action..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
                             className="w-full bg-transparent border-none text-sm text-white focus:ring-0 placeholder-slate-600 pl-10"
                         />
                     </div>
+                    <select
+                        value={actionFilter}
+                        onChange={(e) => setActionFilter(e.target.value)}
+                        className="ml-3 px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-300"
+                    >
+                        <option value="ALL">All actions</option>
+                        <option value="LOGIN">LOGIN</option>
+                        <option value="AI_REQUEST">AI_REQUEST</option>
+                        <option value="OPEN_LESSON">OPEN_LESSON</option>
+                        <option value="COMPLETE_LESSON">COMPLETE_LESSON</option>
+                    </select>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -126,11 +164,11 @@ export default function LogsPage() {
                                         <td colSpan={5} className="px-6 py-6"><div className="h-4 bg-slate-800 rounded w-full"></div></td>
                                     </tr>
                                 ))
-                            ) : logs.length === 0 ? (
+                            ) : pageItems.length === 0 ? (
                                 <tr>
                                     <td colSpan={5} className="px-6 py-12 text-center text-slate-500 italic">No logs found in the system.</td>
                                 </tr>
-                            ) : logs.map((log) => (
+                            ) : pageItems.map((log) => (
                                 <tr key={log.id} className="hover:bg-slate-800/20 transition-colors">
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="flex items-center text-sm text-slate-300">
@@ -155,7 +193,7 @@ export default function LogsPage() {
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 text-xs text-slate-400 max-w-xs truncate">
-                                        {log.details ? <code>{JSON.stringify(log.details)}</code> : '---'}
+                                        {log.details ? <code>{String(log.details)}</code> : '---'}
                                     </td>
                                     <td className="px-6 py-4 text-xs font-mono text-slate-500">
                                         {log.ip_address || '---'}
@@ -167,17 +205,33 @@ export default function LogsPage() {
                 </div>
 
                 <div className="p-4 border-t border-slate-800 bg-slate-900/40 flex items-center justify-between">
-                    <p className="text-xs text-slate-500">Showing {logs.length} entries</p>
+                    <p className="text-xs text-slate-500">Showing {pageItems.length} of {filtered.length} entries</p>
                     <div className="flex gap-2">
-                        <button className="p-2 border border-slate-700 rounded-lg text-slate-500 hover:text-white transition-all disabled:opacity-30" disabled>
+                        <button
+                            onClick={() => setPage((p) => Math.max(1, p - 1))}
+                            className="p-2 border border-slate-700 rounded-lg text-slate-500 hover:text-white transition-all disabled:opacity-30"
+                            disabled={page <= 1}
+                        >
                             <ChevronLeft size={16} />
                         </button>
-                        <button className="p-2 border border-slate-700 rounded-lg text-slate-500 hover:text-white transition-all disabled:opacity-30" disabled>
+                        <button
+                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                            className="p-2 border border-slate-700 rounded-lg text-slate-500 hover:text-white transition-all disabled:opacity-30"
+                            disabled={page >= totalPages}
+                        >
                             <ChevronRight size={16} />
                         </button>
                     </div>
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function LogsPage() {
+    return (
+        <Suspense fallback={<div className="py-16 text-center text-slate-500">Loading logs...</div>}>
+            <LogsPageContent />
+        </Suspense>
     );
 }

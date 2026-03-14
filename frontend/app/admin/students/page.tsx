@@ -7,17 +7,18 @@ import {
     Search,
     RefreshCw,
     Users,
-    MoreVertical,
     CheckCircle2,
     Clock,
     X,
     Copy,
     Check,
     UserPlus,
-    Loader2
+    Loader2,
+    Shield
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { useRouter } from 'next/navigation';
 
 export default function StudentsPage() {
     const [users, setUsers] = useState<any[]>([]);
@@ -32,15 +33,11 @@ export default function StudentsPage() {
     const [createdCredentials, setCreatedCredentials] = useState<any>(null);
     const [copied, setCopied] = useState(false);
     const [toastMessage, setToastMessage] = useState<string | null>(null);
+    const router = useRouter();
 
     const showToast = (msg: string) => {
         setToastMessage(msg);
         setTimeout(() => setToastMessage(null), 3000);
-    };
-
-    const handleFeatureSoon = (e: React.MouseEvent, feature: string) => {
-        e.preventDefault();
-        showToast(`${feature} feature is coming soon!`);
     };
 
     const fetchUsers = async () => {
@@ -68,7 +65,7 @@ export default function StudentsPage() {
             setName('');
             fetchUsers();
         } catch (e) {
-            alert('Failed to create user');
+            showToast('Failed to create user');
         } finally {
             setIsCreating(false);
         }
@@ -132,6 +129,7 @@ export default function StudentsPage() {
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">User</th>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Role</th>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Onboarding</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Level</th>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Joined</th>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Last Sync</th>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider text-right">Action</th>
@@ -141,12 +139,12 @@ export default function StudentsPage() {
                             {isLoading ? (
                                 Array(5).fill(0).map((_, i) => (
                                     <tr key={i} className="animate-pulse">
-                                        <td colSpan={6} className="px-6 py-8"><div className="h-4 bg-slate-800 rounded w-full"></div></td>
+                                        <td colSpan={7} className="px-6 py-8"><div className="h-4 bg-slate-800 rounded w-full"></div></td>
                                     </tr>
                                 ))
                             ) : filteredUsers.length === 0 ? (
                                 <tr>
-                                    <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                                    <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
                                         <div className="flex flex-col items-center justify-center space-y-3">
                                             <Users size={32} className="text-slate-600" />
                                             <p className="text-sm font-medium">No students found</p>
@@ -185,6 +183,9 @@ export default function StudentsPage() {
                                             </div>
                                         )}
                                     </td>
+                                    <td className="px-6 py-4 text-sm text-slate-300">
+                                        {user.trading_level || 'Beginner'}
+                                    </td>
                                     <td className="px-6 py-4 text-sm text-slate-400">
                                         {new Date(user.created_at).toLocaleDateString()}
                                     </td>
@@ -192,9 +193,23 @@ export default function StudentsPage() {
                                         {user.last_login ? new Date(user.last_login).toLocaleTimeString() : 'Never'}
                                     </td>
                                     <td className="px-6 py-4 text-right">
-                                        <button onClick={(e) => handleFeatureSoon(e, 'User Actions')} className="p-2 text-slate-500 hover:text-white transition-colors">
-                                            <MoreVertical size={18} />
-                                        </button>
+                                        <div className="inline-flex items-center gap-2">
+                                            <button
+                                                onClick={() => {
+                                                    navigator.clipboard.writeText(user.login);
+                                                    showToast('Login copied');
+                                                }}
+                                                className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-700 text-slate-300 hover:text-white"
+                                            >
+                                                Copy login
+                                            </button>
+                                            <button
+                                                onClick={() => router.push(`/admin/logs?search=${encodeURIComponent(user.login)}`)}
+                                                className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-700 text-slate-300 hover:text-white inline-flex items-center gap-1"
+                                            >
+                                                <Shield size={12} /> Logs
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}

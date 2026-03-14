@@ -4,9 +4,11 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
 import { Loader2 } from 'lucide-react';
+import { useLanguage } from '@/context/LanguageContext';
 
 export default function RootPage() {
   const router = useRouter();
+  const { t } = useLanguage();
 
   useEffect(() => {
     const token = Cookies.get('token');
@@ -35,7 +37,7 @@ export default function RootPage() {
         Trade<span className="text-primary italic">Mentor</span> AI
       </div>
       <Loader2 className="animate-spin text-primary" size={32} />
-      <p className="text-slate-500 text-sm">Initializing secure session...</p>
+      <p className="text-slate-500 text-sm">{t('login.sessionInit')}</p>
     </div>
   );
 }

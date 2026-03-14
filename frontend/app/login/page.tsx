@@ -7,8 +7,10 @@ import { LogIn, Lock, User, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import Cookies from 'js-cookie';
+import { useLanguage } from '@/context/LanguageContext';
 
 export default function LoginPage() {
+    const { t } = useLanguage();
     const [login, setLogin] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
@@ -31,7 +33,11 @@ export default function LoginPage() {
             if (user.role === 'superadmin') {
                 router.push('/admin');
             } else {
-                router.push('/dashboard');
+                if (user.onboardingPassed) {
+                    router.push('/dashboard');
+                } else {
+                    router.push('/dashboard/assessment');
+                }
             }
         } catch (err: any) {
             setError(err.response?.data?.error || 'Failed to login. Please check your credentials.');
@@ -56,12 +62,12 @@ export default function LoginPage() {
                         <h1 className="text-4xl font-bold tracking-tight text-white">
                             Trade<span className="text-primary italic">Mentor</span> AI
                         </h1>
-                        <p className="text-slate-400">Welcome back, trader</p>
+                        <p className="text-slate-400">{t('login.welcome')}</p>
                     </div>
 
                     <form onSubmit={handleLogin} className="space-y-6">
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-slate-300 ml-1">Login</label>
+                            <label className="text-sm font-medium text-slate-300 ml-1">{t('login.login')}</label>
                             <div className="relative group">
                                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500 group-focus-within:text-primary transition-colors">
                                     <User size={18} />
@@ -72,13 +78,13 @@ export default function LoginPage() {
                                     value={login}
                                     onChange={(e) => setLogin(e.target.value)}
                                     className="block w-full pl-10 pr-3 py-3 bg-slate-900/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
-                                    placeholder="Enter your login"
+                                    placeholder={t('login.enterLogin')}
                                 />
                             </div>
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-slate-300 ml-1">Password</label>
+                            <label className="text-sm font-medium text-slate-300 ml-1">{t('login.password')}</label>
                             <div className="relative group">
                                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500 group-focus-within:text-primary transition-colors">
                                     <Lock size={18} />
@@ -121,7 +127,7 @@ export default function LoginPage() {
                             ) : (
                                 <>
                                     <LogIn size={20} className="mr-2" />
-                                    Sign In
+                                    {t('login.signIn')}
                                 </>
                             )}
                         </button>

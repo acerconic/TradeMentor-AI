@@ -10,7 +10,8 @@ import {
     TrendingUp,
     UserPlus,
     Activity,
-    Loader2
+    Loader2,
+    Upload
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useRouter } from 'next/navigation';
@@ -49,27 +50,36 @@ export default function AdminDashboard() {
         totalUsers: 0,
         activeCourses: 0,
         aiRequests: 0,
-        errorLogs: 0
+        errorLogs: 0,
+        importedMaterials: 0,
+        processedMaterials: 0,
+        recentActivity: 0,
     });
     const [logs, setLogs] = useState<any[]>([]);
+    const [imports, setImports] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         const fetchStatsAndLogs = async () => {
             setIsLoading(true);
             try {
-                const [statsRes, logsRes] = await Promise.all([
+                const [statsRes, logsRes, activityRes] = await Promise.all([
                     api.get('/admin/stats'),
-                    api.get('/admin/logs')
+                    api.get('/admin/logs'),
+                    api.get('/admin/recent-activity')
                 ]);
 
                 setStats({
                     totalUsers: statsRes.data.totalStudents || 0,
                     activeCourses: statsRes.data.activeCourses || 0,
                     aiRequests: statsRes.data.aiInteractions || 0,
-                    errorLogs: statsRes.data.systemAlerts || 0
+                    errorLogs: statsRes.data.systemAlerts || 0,
+                    importedMaterials: statsRes.data.importedMaterials || 0,
+                    processedMaterials: statsRes.data.processedMaterials || 0,
+                    recentActivity: statsRes.data.recentActivity || 0,
                 });
                 setLogs(logsRes.data.slice(0, 5)); // Just take top 5 recent logs
+                setImports((activityRes.data?.imports || []).slice(0, 5));
             } catch (e) {
                 console.error('Failed to fetch dashboard data', e);
             } finally {
@@ -110,11 +120,26 @@ export default function AdminDashboard() {
                 />
                 <StatCard
                     icon={ShieldAlert}
-                    label="System Alerts"
-                    value={stats.errorLogs}
+                    label="Recent Activity"
+                    value={stats.recentActivity}
                     color="amber"
                     delay={0.4}
                 />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="glass-card p-5">
+                    <p className="text-xs text-slate-500 uppercase tracking-wider font-bold">Imported Materials</p>
+                    <p className="text-2xl font-black text-white mt-1">{stats.importedMaterials}</p>
+                </div>
+                <div className="glass-card p-5">
+                    <p className="text-xs text-slate-500 uppercase tracking-wider font-bold">Processed Materials</p>
+                    <p className="text-2xl font-black text-white mt-1">{stats.processedMaterials}</p>
+                </div>
+                <div className="glass-card p-5">
+                    <p className="text-xs text-slate-500 uppercase tracking-wider font-bold">System Alerts</p>
+                    <p className="text-2xl font-black text-white mt-1">{stats.errorLogs}</p>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-12">
@@ -178,8 +203,41 @@ export default function AdminDashboard() {
                                 <span className="font-medium">Add New Course</span>
                             </div>
                         </button>
+                        <button onClick={() => router.push('/admin/import')} className="w-full flex items-center justify-between p-4 bg-slate-900/50 hover:bg-slate-800 border border-slate-800 hover:border-purple-500/50 rounded-xl transition-all group">
+                            <div className="flex items-center space-x-3 text-slate-300 group-hover:text-white transition-colors">
+                                <Upload size={20} className="text-purple-500" />
+                                <span className="font-medium">Import Library</span>
+                            </div>
+                        </button>
                     </div>
                 </div>
+            </div>
+
+            <div className="glass-card p-6">
+                <div className="flex items-center justify-between mb-5">
+                    <h2 className="text-xl font-bold text-white">Import History</h2>
+                    <button onClick={() => router.push('/admin/import')} className="text-primary text-sm font-medium hover:underline">Open Import</button>
+                </div>
+
+                {isLoading ? (
+                    <div className="py-10 text-slate-500 text-sm">Loading imports...</div>
+                ) : imports.length === 0 ? (
+                    <div className="py-10 text-slate-500 text-sm">No imports yet.</div>
+                ) : (
+                    <div className="space-y-3">
+                        {imports.map((imp) => (
+                            <div key={imp.id} className="p-4 rounded-xl bg-slate-900/40 border border-slate-800 flex items-center justify-between gap-4">
+                                <div>
+                                    <p className="text-sm text-white font-medium truncate max-w-[560px]">{imp.original_name}</p>
+                                    <p className="text-xs text-slate-500 mt-1">{new Date(imp.created_at).toLocaleString()}</p>
+                                </div>
+                                <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${imp.status === 'processed' ? 'bg-emerald-500/10 text-emerald-500' : imp.status === 'failed' ? 'bg-red-500/10 text-red-500' : 'bg-blue-500/10 text-blue-500'}`}>
+                                    {imp.status}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     );

@@ -17,6 +17,12 @@ api.interceptors.request.use(
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
+        if (typeof window !== 'undefined') {
+            const language = localStorage.getItem('language');
+            if (language === 'RU' || language === 'UZ') {
+                config.headers['X-User-Language'] = language;
+            }
+        }
         return config;
     },
     (error) => {

@@ -23,6 +23,18 @@ interface AIClassification {
     module_title: string;
     lesson_title: string;
     summary: string;
+    language: 'RU' | 'UZ';
+}
+
+interface ExtractedPdfText {
+    fullText: string;
+    aiText: string;
+}
+
+interface LessonPlanItem {
+    title: string;
+    summary: string;
+    sourceText: string;
 }
 
 interface IngestionResult {
@@ -31,6 +43,7 @@ interface IngestionResult {
     course_title?: string;
     lesson_id?: string;
     lesson_title?: string;
+    lessons_created?: number;
     category?: string;
     material_id?: string;
     error?: string;
@@ -68,12 +81,31 @@ function normalizeClassification(input: Partial<AIClassification>, fallbackName:
     const module_title = clamp(safe(input.module_title) || 'Core Concepts', 50);
     const lesson_title = clamp(safe(input.lesson_title) || safe(fallbackName).replace(/\.pdf$/i, ''), 60);
     const summary = clamp(safe(input.summary) || `A comprehensive guide on ${lesson_title} for professional traders.`, 1000);
+    const language = normalizeLanguage(input.language, fallbackName, summary);
 
-    return { category, course_title, module_title, lesson_title, summary };
+    return { category, course_title, module_title, lesson_title, summary, language };
+}
+
+function normalizeLanguage(value: any, filename: string, contentSample = ''): 'RU' | 'UZ' {
+    const v = String(value || '').trim().toUpperCase();
+    if (v === 'RU' || v === 'RUSSIAN') return 'RU';
+    if (v === 'UZ' || v === 'UZBEK' || v === 'UZBEKISTAN') return 'UZ';
+
+    const filenameLower = String(filename || '').toLowerCase();
+    if (/(^|[^a-z])(ru|rus)([^a-z]|$)/.test(filenameLower)) return 'RU';
+    if (/(^|[^a-z])(uz|uzb)([^a-z]|$)/.test(filenameLower)) return 'UZ';
+
+    const text = String(contentSample || '');
+    const cyrillicMatches = (text.match(/[а-яА-ЯёЁ]/g) || []).length;
+    const uzLatinHints = (text.match(/\b(uchun|bozor|savdo|dars|daraja|xatar|psixologiya|kurs|modul|likvid|tahlil)\b/gi) || []).length;
+
+    if (cyrillicMatches > 80) return 'RU';
+    if (uzLatinHints >= 3) return 'UZ';
+    return 'RU';
 }
 
 // ── PDF Text Extraction ──────────────────────────────────────
-async function extractPdfText(filePath: string): Promise<string> {
+async function extractPdfText(filePath: string): Promise<ExtractedPdfText> {
     const buffer = fs.readFileSync(filePath);
 
     // Dynamically require pdf-parse (handles both ESM and CJS)
@@ -94,9 +126,26 @@ async function extractPdfText(filePath: string): Promise<string> {
     }
 
     const data = await pdfParse(buffer);
-    const text = (data.text || '').replace(/\s+/g, ' ').trim();
-    // Limit to ~4000 chars for AI classification
-    return text.substring(0, 4000);
+    const raw = String(data.text || '')
+        .replace(/\u0000/g, '')
+        .replace(/\r/g, '\n')
+        .replace(/\t/g, ' ');
+
+    const fullText = raw
+        .replace(/\n{3,}/g, '\n\n')
+        .split('\n')
+        .map(line => line.trimEnd())
+        .join('\n')
+        .trim()
+        .substring(0, 220000);
+
+    // Keep compact text for LLM prompts.
+    const aiText = fullText
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 6000);
+
+    return { fullText, aiText };
 }
 
 // ── AI Classification ────────────────────────────────────────
@@ -109,11 +158,12 @@ async function classifyWithAI(
 Analyze this PDF content and return ONLY a JSON object with no explanations.
 
 PDF filename: "${originalFileName}"
-PDF content (first 4000 chars):
+PDF content sample:
 ${extractedText}
 
 Return ONLY this JSON (no markdown, no explanation):
 {
+  "language": "RU or UZ (detected main language of this PDF)",
   "category": "one of: SMC, ICT, Price Action, Risk Management, Psychology, Fundamental, Technical, Other",
   "course_title": "suggested course title (short, max 50 chars)",
   "module_title": "suggested module name (short, max 50 chars)",
@@ -176,6 +226,7 @@ function classifyFromFilename(filename: string): AIClassification {
     else if (lower.includes('fvg')) category = 'SMC';
 
     return {
+        language: normalizeLanguage('', filename, name),
         category,
         course_title: category + ' Trading Mastery',
         module_title: 'Core Concepts',
@@ -184,21 +235,267 @@ function classifyFromFilename(filename: string): AIClassification {
     };
 }
 
-// ── Course / Module / Lesson Upsert ──────────────────────────
-async function upsertCourseModuleLesson(
+function sanitizeTitle(input: string, fallback: string, max = 60): string {
+    const value = String(input || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const base = value || fallback;
+    return base.length > max ? base.substring(0, max).trim() : base;
+}
+
+function sanitizeSummary(input: string, fallback: string, max = 1200): string {
+    const value = String(input || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const base = value || fallback;
+    return base.length > max ? `${base.substring(0, max - 3).trim()}...` : base;
+}
+
+function extractHeadingCandidates(fullText: string, max = 30): string[] {
+    const lines = fullText.split('\n').map(l => l.trim());
+    const headings: string[] = [];
+    const seen = new Set<string>();
+
+    for (const line of lines) {
+        if (!line || line.length < 4 || line.length > 90) continue;
+        const isNumbered = /^(chapter|section|module|part)?\s*\d+[\.:\-\)]?\s+/i.test(line);
+        const hasFewPunctuation = !/[\.\?!]$/.test(line);
+        const words = line.split(/\s+/);
+        const titleCaseLike = words.length <= 12 && words.every(w => /^[\p{L}\p{N}'\-:]+$/u.test(w));
+        if (!(isNumbered || (hasFewPunctuation && titleCaseLike))) continue;
+
+        const key = line.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        headings.push(line);
+        if (headings.length >= max) break;
+    }
+
+    return headings;
+}
+
+function splitIntoLogicalBlocks(fullText: string): Array<{ heading: string; text: string }> {
+    const lines = fullText.split('\n');
+    const blocks: Array<{ heading: string; text: string }> = [];
+
+    let currentHeading = 'Introduction';
+    let currentLines: string[] = [];
+
+    const flush = () => {
+        const text = currentLines.join('\n').trim();
+        if (text.length > 0) {
+            blocks.push({ heading: currentHeading, text });
+        }
+        currentLines = [];
+    };
+
+    for (const rawLine of lines) {
+        const line = rawLine.trim();
+        const headingLike =
+            line.length >= 4 &&
+            line.length <= 90 &&
+            (/^(chapter|section|module|part)?\s*\d+[\.:\-\)]?\s+/i.test(line) ||
+                (/^[\p{L}\p{N}'\-:\s]+$/u.test(line) && !/[\.\?!]$/.test(line) && line.split(/\s+/).length <= 12));
+
+        if (headingLike) {
+            flush();
+            currentHeading = line;
+            continue;
+        }
+
+        currentLines.push(rawLine);
+    }
+    flush();
+
+    if (blocks.length >= 2) return blocks;
+
+    // Fallback for PDFs without clear headings: split by size.
+    const compact = fullText.replace(/\n{2,}/g, '\n').trim();
+    if (!compact) return [];
+
+    const parts: Array<{ heading: string; text: string }> = [];
+    const chunkSize = 7000;
+    for (let i = 0; i < compact.length; i += chunkSize) {
+        const chunk = compact.substring(i, i + chunkSize).trim();
+        if (chunk.length > 0) {
+            parts.push({ heading: `Part ${parts.length + 1}`, text: chunk });
+        }
+    }
+
+    return parts;
+}
+
+async function generateLessonPlanWithAI(
     classification: AIClassification,
+    fileName: string,
+    blocks: Array<{ heading: string; text: string }>,
+    headingCandidates: string[],
+    log?: FastifyBaseLogger
+): Promise<{ moduleTitle: string; lessons: Array<{ title: string; summary: string; from: number; to: number }> } | null> {
+    if (blocks.length <= 1) return null;
+
+    const compactBlocks = blocks.slice(0, 16).map((b, index) => ({
+        index,
+        heading: b.heading,
+        excerpt: b.text.replace(/\s+/g, ' ').substring(0, 500)
+    }));
+
+    const prompt = `Create a practical lesson structure for a trading education PDF.
+
+Filename: ${fileName}
+Suggested category: ${classification.category}
+Suggested course title: ${classification.course_title}
+Suggested module title: ${classification.module_title}
+Detected headings: ${headingCandidates.slice(0, 20).join(' | ') || 'n/a'}
+
+Blocks:
+${JSON.stringify(compactBlocks, null, 2)}
+
+Return ONLY JSON with this shape:
+{
+  "module_title": "string, max 50 chars",
+  "lessons": [
+    {
+      "title": "string, max 60 chars",
+      "summary": "one concise learning outcome",
+      "from": 0,
+      "to": 0
+    }
+  ]
+}
+
+Rules:
+- Use 1 lesson for small material, 2-12 lessons for bigger material.
+- from/to are inclusive block indexes.
+- Keep lesson order logical and non-overlapping.
+- Do not invent missing topics.`;
+
+    const models = [
+        'meta-llama/llama-3.3-70b-instruct',
+        'meta-llama/llama-3.1-70b-instruct',
+        'meta-llama/llama-3.1-8b-instruct:free'
+    ];
+
+    for (const model of models) {
+        try {
+            const data = await openRouterService.chat(model, [
+                { role: 'system', content: 'Return only valid JSON. No markdown.' },
+                { role: 'user', content: prompt }
+            ], undefined);
+
+            const raw = data?.choices?.[0]?.message?.content || '';
+            const match = raw.match(/\{[\s\S]*\}/);
+            if (!match) throw new Error('No JSON in lesson plan response');
+
+            const parsed = JSON.parse(match[0]);
+            const lessons = Array.isArray(parsed?.lessons) ? parsed.lessons : [];
+            if (!lessons.length) throw new Error('Empty lessons array');
+
+            const normalized = lessons
+                .slice(0, 12)
+                .map((item: any, idx: number) => {
+                    const fromRaw = Number.isInteger(item?.from) ? Number(item.from) : idx;
+                    const toRaw = Number.isInteger(item?.to) ? Number(item.to) : fromRaw;
+                    const from = Math.max(0, Math.min(blocks.length - 1, fromRaw));
+                    const to = Math.max(from, Math.min(blocks.length - 1, toRaw));
+                    return {
+                        title: sanitizeTitle(item?.title, `${classification.lesson_title} - Part ${idx + 1}`),
+                        summary: sanitizeSummary(item?.summary, `Lesson ${idx + 1} from imported material.`),
+                        from,
+                        to
+                    };
+                });
+
+            return {
+                moduleTitle: sanitizeTitle(parsed?.module_title, classification.module_title, 50),
+                lessons: normalized
+            };
+        } catch (e: any) {
+            if (log) log.warn(`[Ingestion] Lesson plan failed for model ${model}: ${e.message}`);
+        }
+    }
+
+    return null;
+}
+
+async function buildLessonPlan(
+    classification: AIClassification,
+    originalFileName: string,
+    fullText: string,
+    log?: FastifyBaseLogger
+): Promise<{ moduleTitle: string; lessons: LessonPlanItem[] }> {
+    const blocks = splitIntoLogicalBlocks(fullText);
+
+    if (blocks.length <= 1) {
+        return {
+            moduleTitle: classification.module_title,
+            lessons: [{
+                title: classification.lesson_title,
+                summary: classification.summary,
+                sourceText: fullText || classification.summary
+            }]
+        };
+    }
+
+    const headingCandidates = extractHeadingCandidates(fullText, 30);
+    const aiPlan = await generateLessonPlanWithAI(classification, originalFileName, blocks, headingCandidates, log);
+
+    if (aiPlan) {
+        return {
+            moduleTitle: aiPlan.moduleTitle,
+            lessons: aiPlan.lessons.map((item, idx) => {
+                const sourceText = blocks
+                    .slice(item.from, item.to + 1)
+                    .map(b => b.text)
+                    .join('\n\n')
+                    .trim();
+
+                return {
+                    title: sanitizeTitle(item.title, `${classification.lesson_title} - Part ${idx + 1}`),
+                    summary: sanitizeSummary(item.summary, classification.summary),
+                    sourceText: sourceText || classification.summary
+                };
+            })
+        };
+    }
+
+    // Deterministic fallback when AI plan is unavailable.
+    const maxLessons = Math.min(blocks.length, 10);
+    const grouped: LessonPlanItem[] = [];
+    const groupSize = Math.ceil(blocks.length / maxLessons);
+    for (let i = 0; i < blocks.length; i += groupSize) {
+        const part = blocks.slice(i, i + groupSize);
+        const index = grouped.length + 1;
+        const heading = part[0]?.heading || `Part ${index}`;
+        const sourceText = part.map(p => p.text).join('\n\n').trim();
+        const excerpt = sourceText.replace(/\s+/g, ' ').substring(0, 220);
+
+        grouped.push({
+            title: sanitizeTitle(`${heading} (${index})`, `${classification.lesson_title} - Part ${index}`),
+            summary: sanitizeSummary(`Focused section: ${excerpt}`, classification.summary),
+            sourceText: sourceText || classification.summary
+        });
+    }
+
+    return { moduleTitle: classification.module_title, lessons: grouped };
+}
+
+// ── Course / Module / Lesson Upsert ──────────────────────────
+async function upsertCourseModuleLessons(
+    classification: AIClassification,
+    lessonPlan: { moduleTitle: string; lessons: LessonPlanItem[] },
     pdfPath: string
-): Promise<{ course_id: string; module_id: string; lesson_id: string }> {
+): Promise<{ course_id: string; module_id: string; lesson_id: string; lessons_created: number }> {
     return withTransaction(async (client) => {
         // Guard against concurrent imports producing duplicates.
         // Uses advisory locks (no schema changes required).
-        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`course:${classification.course_title.toLowerCase()}`]);
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`course:${classification.course_title.toLowerCase()}:${classification.language}`]);
 
         // 1. Find or create course by title
         let courseId: string;
         const existingCourse = await client.query(
-            `SELECT id FROM courses WHERE LOWER(title) = LOWER($1) LIMIT 1`,
-            [classification.course_title]
+            `SELECT id FROM courses WHERE LOWER(title) = LOWER($1) AND language = $2 LIMIT 1`,
+            [classification.course_title, classification.language]
         );
 
         if (existingCourse.rows.length > 0) {
@@ -213,19 +510,20 @@ async function upsertCourseModuleLesson(
                     classification.summary,
                     classification.category,
                     'Beginner',
-                    'RU'
+                    classification.language
                 ]
             );
             courseId = newCourse.rows[0].id;
         }
 
-        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`module:${courseId}:${classification.module_title.toLowerCase()}`]);
+        const moduleTitle = sanitizeTitle(lessonPlan.moduleTitle, classification.module_title, 50);
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`module:${courseId}:${moduleTitle.toLowerCase()}`]);
 
         // 2. Find or create module by title + course_id
         let moduleId: string;
         const existingModule = await client.query(
             `SELECT id FROM modules WHERE course_id = $1 AND LOWER(title) = LOWER($2) LIMIT 1`,
-            [courseId, classification.module_title]
+            [courseId, moduleTitle]
         );
 
         if (existingModule.rows.length > 0) {
@@ -241,72 +539,89 @@ async function upsertCourseModuleLesson(
             const newModule = await client.query(
                 `INSERT INTO modules (id, course_id, title, sort_order, position, created_at, updated_at)
                  VALUES ($1, $2, $3, $4, $4, NOW(), NOW()) RETURNING id`,
-                [crypto.randomUUID(), courseId, classification.module_title, newPos]
+                [crypto.randomUUID(), courseId, moduleTitle, newPos]
             );
             moduleId = newModule.rows[0].id;
         }
 
-        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`lesson:${moduleId}:${classification.lesson_title.toLowerCase()}`]);
-
-        // 3. Upsert lesson by title within module (idempotent re-import)
-        const existingLesson = await client.query(
-            `SELECT id FROM lessons WHERE module_id = $1 AND LOWER(title) = LOWER($2) LIMIT 1`,
-            [moduleId, classification.lesson_title]
+        const existingLessons = await client.query(
+            `SELECT id, title, sort_order FROM lessons WHERE module_id = $1`,
+            [moduleId]
         );
 
-        let lessonId: string;
-        if (existingLesson.rows.length > 0) {
-            lessonId = existingLesson.rows[0].id;
-        } else {
-            const maxLessonPos = await client.query(
-                `SELECT COALESCE(MAX(sort_order), 0) as max_pos FROM lessons WHERE module_id = $1`,
-                [moduleId]
-            );
-            const newLessonPos = (parseInt(maxLessonPos.rows[0].max_pos) || 0) + 1;
+        const byLowerTitle = new Map<string, { id: string; sort_order: number }>();
+        let maxSort = 0;
+        for (const row of existingLessons.rows) {
+            const key = String(row.title || '').toLowerCase();
+            if (key) byLowerTitle.set(key, { id: row.id, sort_order: Number(row.sort_order) || 0 });
+            maxSort = Math.max(maxSort, Number(row.sort_order) || 0);
+        }
 
-            // Prefer inserting with summary/pdf_path when columns exist.
-            try {
-                const newLesson = await client.query(
-                    `INSERT INTO lessons (id, module_id, title, content, summary, pdf_path, sort_order, position, created_at, updated_at)
-                     VALUES ($1, $2, $3, $4, $4, $5, $6, $6, NOW(), NOW()) RETURNING id`,
-                    [
-                        crypto.randomUUID(),
-                        moduleId,
-                        classification.lesson_title,
-                        classification.summary,
-                        pdfPath,
-                        newLessonPos
-                    ]
-                );
-                lessonId = newLesson.rows[0].id;
-            } catch (e: any) {
-                if (!isPgUndefinedColumnError(e)) throw e;
-                const newLesson = await client.query(
-                    `INSERT INTO lessons (id, module_id, title, content, sort_order, created_at, updated_at)
-                     VALUES ($1, $2, $3, $4, $5, NOW(), NOW()) RETURNING id`,
-                    [
-                        crypto.randomUUID(),
-                        moduleId,
-                        classification.lesson_title,
-                        classification.summary,
-                        newLessonPos
-                    ]
-                );
-                lessonId = newLesson.rows[0].id;
+        let firstLessonId = '';
+        const seenInBatch = new Set<string>();
+
+        for (let index = 0; index < lessonPlan.lessons.length; index++) {
+            const lesson = lessonPlan.lessons[index];
+            let titleBase = sanitizeTitle(lesson.title, `${classification.lesson_title} - Part ${index + 1}`);
+            if (!titleBase) titleBase = `${classification.lesson_title} - Part ${index + 1}`;
+
+            let title = titleBase;
+            let suffix = 2;
+            while (seenInBatch.has(title.toLowerCase())) {
+                title = sanitizeTitle(`${titleBase} (${suffix})`, `${titleBase} (${suffix})`);
+                suffix += 1;
             }
+            seenInBatch.add(title.toLowerCase());
+
+            await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`lesson:${moduleId}:${title.toLowerCase()}`]);
+
+            const summary = sanitizeSummary(lesson.summary, classification.summary);
+            const content = lesson.sourceText?.trim() || summary;
+            const existing = byLowerTitle.get(title.toLowerCase());
+
+            let lessonId = existing?.id || '';
+            if (existing) {
+                try {
+                    await client.query(
+                        `UPDATE lessons
+                         SET content = $1, summary = $2, pdf_path = $3, language = $4, updated_at = NOW()
+                         WHERE id = $5`,
+                        [content, summary, pdfPath, classification.language, existing.id]
+                    );
+                } catch (e: any) {
+                    if (!isPgUndefinedColumnError(e)) throw e;
+                    await client.query(
+                        `UPDATE lessons SET content = $1, updated_at = NOW() WHERE id = $2`,
+                        [content, existing.id]
+                    );
+                }
+            } else {
+                maxSort += 1;
+                try {
+                    const created = await client.query(
+                        `INSERT INTO lessons (id, module_id, title, content, summary, pdf_path, language, sort_order, position, created_at, updated_at)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, NOW(), NOW())
+                         RETURNING id`,
+                        [crypto.randomUUID(), moduleId, title, content, summary, pdfPath, classification.language, maxSort]
+                    );
+                    lessonId = created.rows[0].id;
+                } catch (e: any) {
+                    if (!isPgUndefinedColumnError(e)) throw e;
+                    const created = await client.query(
+                        `INSERT INTO lessons (id, module_id, title, content, sort_order, created_at, updated_at)
+                         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+                         RETURNING id`,
+                        [crypto.randomUUID(), moduleId, title, content, maxSort]
+                    );
+                    lessonId = created.rows[0].id;
+                }
+                byLowerTitle.set(title.toLowerCase(), { id: lessonId, sort_order: maxSort });
+            }
+
+            if (!firstLessonId) firstLessonId = lessonId;
         }
 
-        // Update lesson metadata (safe even on re-import)
-        try {
-            await client.query(
-                `UPDATE lessons SET summary = $1, pdf_path = $2, updated_at = NOW() WHERE id = $3`,
-                [classification.summary, pdfPath, lessonId]
-            );
-        } catch (e: any) {
-            if (!isPgUndefinedColumnError(e)) throw e;
-        }
-
-        return { course_id: courseId, module_id: moduleId, lesson_id: lessonId };
+        return { course_id: courseId, module_id: moduleId, lesson_id: firstLessonId, lessons_created: lessonPlan.lessons.length };
     });
 }
 
@@ -330,8 +645,11 @@ export async function ingestPdf(
         // 1. Extract PDF text
         if (log) log.info(`[Ingestion] Extracting text from: ${originalFileName}`);
         let extractedText = '';
+        let fullText = '';
         try {
-            extractedText = await extractPdfText(filePath);
+            const extracted = await extractPdfText(filePath);
+            extractedText = extracted.aiText;
+            fullText = extracted.fullText;
         } catch (pdfErr: any) {
             if (log) log.warn(`[Ingestion] pdf-parse failed: ${pdfErr.message} — using filename fallback`);
         }
@@ -340,6 +658,7 @@ export async function ingestPdf(
         if (!extractedText || extractedText.length < 20) {
             if (log) log.warn(`[Ingestion] PDF has no/little text, using filename fallback: ${originalFileName}`);
             extractedText = `Trading material: ${originalFileName.replace('.pdf', '')}`;
+            fullText = extractedText;
         }
 
         // 2. AI Classification
@@ -347,10 +666,14 @@ export async function ingestPdf(
         const classification = await classifyWithAI(extractedText, originalFileName, log);
         if (log) log.info(`[Ingestion] Classified: ${JSON.stringify(classification)}`);
 
-        // 3. Upsert Course → Module → Lesson
-        const { course_id, lesson_id } = await upsertCourseModuleLesson(classification, filePath);
+        // 3. Build lesson structure from extracted content
+        if (log) log.info(`[Ingestion] Building lesson plan: ${originalFileName}`);
+        const lessonPlan = await buildLessonPlan(classification, originalFileName, fullText || extractedText, log);
 
-        // 4. Update material record
+        // 4. Upsert Course → Module → Lessons
+        const { course_id, lesson_id, lessons_created } = await upsertCourseModuleLessons(classification, lessonPlan, filePath);
+
+        // 5. Update material record
         await query(
             `UPDATE uploaded_materials SET 
                 extracted_text = $1,
@@ -361,9 +684,14 @@ export async function ingestPdf(
                 lesson_id = $5
              WHERE id = $6`,
             [
-                extractedText.substring(0, 5000),
+                (fullText || extractedText).substring(0, 12000),
                 classification.category,
-                JSON.stringify(classification),
+                JSON.stringify({
+                    ...classification,
+                    module_title: lessonPlan.moduleTitle,
+                    lessons_created,
+                    lesson_titles: lessonPlan.lessons.map(l => l.title)
+                }),
                 course_id,
                 lesson_id,
                 materialId
@@ -377,7 +705,8 @@ export async function ingestPdf(
             course_id,
             course_title: classification.course_title,
             lesson_id,
-            lesson_title: classification.lesson_title,
+            lesson_title: lessonPlan.lessons[0]?.title || classification.lesson_title,
+            lessons_created,
             category: classification.category,
             material_id: materialId
         };

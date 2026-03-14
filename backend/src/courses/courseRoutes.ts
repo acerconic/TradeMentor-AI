@@ -4,6 +4,23 @@ import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
 
+const requireSuperadmin = async (request: any, reply: any) => {
+    if (request.user?.role !== 'superadmin') {
+        return reply.status(403).send({ error: 'Access denied. superadmin role required.' })
+    }
+}
+
+async function touchSystemUpdateToken(reason: string) {
+    const token = `${Date.now()}:${reason}`
+    await query(
+        `INSERT INTO system_state (key, value, updated_at)
+         VALUES ('update_banner_token', $1, NOW())
+         ON CONFLICT (key)
+         DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+        [token]
+    )
+}
+
 function resolveSafePdfPath(storedPath: string): string | null {
     const raw = String(storedPath || '').trim()
     if (!raw) return null
@@ -47,7 +64,43 @@ export async function ensureSchema(server: FastifyInstance) {
         // Ensure lessons has summary, pdf_path, position
         `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS summary TEXT`,
         `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS pdf_path TEXT`,
+        `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS language user_language DEFAULT 'RU'`,
         `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS position INT DEFAULT 0`,
+        // Ensure users has level used for assessment and AI personalization
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS trading_level VARCHAR(20) NOT NULL DEFAULT 'Beginner'`,
+        // Ensure progress table exists for lesson completion tracking
+        `CREATE TABLE IF NOT EXISTS user_progress (
+            id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id       UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            lesson_id     UUID        NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
+            is_completed  BOOLEAN     NOT NULL DEFAULT FALSE,
+            completed_at  TIMESTAMPTZ,
+            UNIQUE(user_id, lesson_id)
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_user_progress_user ON user_progress(user_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_user_progress_lesson ON user_progress(lesson_id)`,
+        // Ensure user settings table exists
+        `CREATE TABLE IF NOT EXISTS user_settings (
+            user_id              UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            language             user_language NOT NULL DEFAULT 'RU',
+            email_notifications  BOOLEAN NOT NULL DEFAULT TRUE,
+            push_notifications   BOOLEAN NOT NULL DEFAULT TRUE,
+            dark_mode            BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`,
+        // Ensure global system state table exists (for update banner)
+        `CREATE TABLE IF NOT EXISTS system_state (
+            key         TEXT PRIMARY KEY,
+            value       TEXT,
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`,
+        `INSERT INTO system_state (key, value, updated_at)
+         VALUES ('update_banner_token', 'boot', NOW())
+         ON CONFLICT (key) DO NOTHING`,
+        `UPDATE system_state
+         SET value = CONCAT('deploy:', EXTRACT(EPOCH FROM NOW())::bigint), updated_at = NOW()
+         WHERE key = 'update_banner_token'`,
         // Ensure uploaded_materials exists
         `CREATE TABLE IF NOT EXISTS uploaded_materials (
             id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -80,7 +133,7 @@ export async function ensureSchema(server: FastifyInstance) {
 export async function adminCourseRoutes(server: FastifyInstance) {
 
     // POST /admin/courses — create course manually
-    server.post('/', { preValidation: [server.authenticate] }, async (request: any, reply) => {
+    server.post('/', { preValidation: [server.authenticate, requireSuperadmin] }, async (request: any, reply) => {
         try {
             let title = ''
             let description = ''
@@ -130,6 +183,7 @@ export async function adminCourseRoutes(server: FastifyInstance) {
             )
 
             server.log.info(`[Courses] Created course: ${title} (${id})`);
+            try { await touchSystemUpdateToken('course_created') } catch { /* ignore */ }
             return result.rows[0]
         } catch (e: any) {
             server.log.error(`[Courses] Create error: ${e.message}`)
@@ -138,7 +192,7 @@ export async function adminCourseRoutes(server: FastifyInstance) {
     })
 
     // GET /admin/courses — list all courses with lesson count
-    server.get('/', { preValidation: [server.authenticate] }, async (request: any, reply) => {
+    server.get('/', { preValidation: [server.authenticate, requireSuperadmin] }, async (request: any, reply) => {
         try {
             const result = await query(`
                 SELECT
@@ -165,10 +219,11 @@ export async function adminCourseRoutes(server: FastifyInstance) {
     })
 
     // DELETE /admin/courses/:id
-    server.delete('/:id', { preValidation: [server.authenticate] }, async (request: any, reply) => {
+    server.delete('/:id', { preValidation: [server.authenticate, requireSuperadmin] }, async (request: any, reply) => {
         try {
             const { id } = request.params as { id: string }
             await query(`DELETE FROM courses WHERE id = $1`, [id])
+            try { await touchSystemUpdateToken('course_deleted') } catch { /* ignore */ }
             return { success: true }
         } catch (e: any) {
             server.log.error(`[Courses] Delete error: ${e.message}`)
@@ -182,6 +237,22 @@ export async function publicCourseRoutes(server: FastifyInstance) {
     // GET /courses — public list (authenticated students)
     server.get('/', { preValidation: [server.authenticate] }, async (request: any, reply) => {
         try {
+            const userId = request.user?.id;
+
+            const languageRes = await query(
+                `SELECT language FROM users WHERE id = $1 LIMIT 1`,
+                [userId]
+            );
+            const preferredLanguage = (String(languageRes.rows[0]?.language || 'RU').toUpperCase() === 'UZ') ? 'UZ' : 'RU';
+
+            const matchCountRes = await query(
+                `SELECT COUNT(*)::int AS cnt FROM courses WHERE language = $1`,
+                [preferredLanguage]
+            );
+            const hasPreferredCourses = Number(matchCountRes.rows[0]?.cnt || 0) > 0;
+            const isFallbackLanguage = !hasPreferredCourses;
+
+            const whereSql = hasPreferredCourses ? `WHERE c.language = $2` : '';
             const result = await query(`
                 SELECT
                     c.id,
@@ -191,14 +262,23 @@ export async function publicCourseRoutes(server: FastifyInstance) {
                     c.level,
                     c.language,
                     c.created_at,
+                    $2::text as preferred_language,
+                    $3::boolean as is_fallback_language,
                     COUNT(DISTINCT m.id) as modules_count,
-                    COUNT(DISTINCT l.id) as lessons_count
+                    COUNT(DISTINCT l.id) as lessons_count,
+                    COUNT(DISTINCT CASE WHEN up.is_completed = TRUE THEN l.id END) as completed_lessons,
+                    CASE
+                        WHEN COUNT(DISTINCT l.id) = 0 THEN 0
+                        ELSE ROUND((COUNT(DISTINCT CASE WHEN up.is_completed = TRUE THEN l.id END)::numeric / COUNT(DISTINCT l.id)::numeric) * 100, 0)
+                    END as progress_percent
                 FROM courses c
                 LEFT JOIN modules m ON m.course_id = c.id
                 LEFT JOIN lessons l ON l.module_id = m.id
+                LEFT JOIN user_progress up ON up.lesson_id = l.id AND up.user_id = $1
+                ${whereSql}
                 GROUP BY c.id, c.title, c.description, c.category, c.level, c.language, c.created_at
                 ORDER BY c.created_at DESC
-            `)
+            `, [userId, preferredLanguage, isFallbackLanguage])
             return result.rows
         } catch (e: any) {
             server.log.error(`[Courses] Public fetch error: ${e.message}`)
@@ -223,6 +303,7 @@ export async function publicCourseRoutes(server: FastifyInstance) {
     server.get('/:id/lessons', { preValidation: [server.authenticate] }, async (request: any, reply) => {
         try {
             const { id } = request.params as { id: string }
+            const userId = request.user?.id
 
             const modules = await query(
                 `SELECT * FROM modules WHERE course_id = $1 ORDER BY sort_order ASC, created_at ASC`,
@@ -231,9 +312,14 @@ export async function publicCourseRoutes(server: FastifyInstance) {
 
             for (const mod of modules.rows) {
                 const lessons = await query(
-                    `SELECT id, title, summary, pdf_path, sort_order, position, created_at
-                     FROM lessons WHERE module_id = $1 ORDER BY sort_order ASC, created_at ASC`,
-                    [mod.id]
+                    `SELECT l.id, l.title, l.summary, l.pdf_path, l.language, l.sort_order, l.position, l.created_at
+                            , COALESCE(up.is_completed, FALSE) as is_completed
+                            , up.completed_at
+                     FROM lessons l
+                     LEFT JOIN user_progress up ON up.lesson_id = l.id AND up.user_id = $2
+                     WHERE l.module_id = $1
+                     ORDER BY l.sort_order ASC, l.created_at ASC`,
+                    [mod.id, userId]
                 )
                 mod.lessons = lessons.rows
             }
@@ -249,6 +335,7 @@ export async function publicCourseRoutes(server: FastifyInstance) {
     server.get('/lessons/:lessonId', { preValidation: [server.authenticate] }, async (request: any, reply) => {
         try {
             const { lessonId } = request.params as { lessonId: string }
+            const userId = request.user?.id
 
             const res = await query(
                 `SELECT 
@@ -256,6 +343,7 @@ export async function publicCourseRoutes(server: FastifyInstance) {
                     l.title,
                     l.summary,
                     l.pdf_path,
+                    l.language,
                     l.sort_order,
                     l.position,
                     l.created_at,
@@ -266,17 +354,30 @@ export async function publicCourseRoutes(server: FastifyInstance) {
                     c.title as course_title,
                     c.category as course_category,
                     c.level as course_level,
-                    c.language as course_language
+                    c.language as course_language,
+                    COALESCE(up.is_completed, FALSE) as is_completed,
+                    up.completed_at
                  FROM lessons l
                  JOIN modules m ON m.id = l.module_id
                  JOIN courses c ON c.id = m.course_id
+                 LEFT JOIN user_progress up ON up.lesson_id = l.id AND up.user_id = $2
                  WHERE l.id = $1
                  LIMIT 1`,
-                [lessonId]
+                [lessonId, userId]
             )
 
             if (!res.rows.length) return reply.status(404).send({ error: 'Lesson not found' })
             const lesson = res.rows[0]
+
+            try {
+                await query(
+                    `INSERT INTO audit_logs (user_id, action, details)
+                     VALUES ($1, 'OPEN_LESSON', $2)`,
+                    [userId, JSON.stringify({ lesson_id: lessonId, course_id: lesson.course_id })]
+                )
+            } catch {
+                // ignore audit issues to keep lesson flow stable
+            }
 
             // Determine next lesson:
             // 1) Next by sort_order within same module
@@ -319,6 +420,73 @@ export async function publicCourseRoutes(server: FastifyInstance) {
         } catch (e: any) {
             server.log.error(`[Courses] Lesson fetch error: ${e.message}`)
             return reply.status(500).send({ error: 'Failed to fetch lesson', details: e.message })
+        }
+    })
+
+    // GET /courses/:id/progress — user progress in a course
+    server.get('/:id/progress', { preValidation: [server.authenticate] }, async (request: any, reply) => {
+        try {
+            const { id } = request.params as { id: string }
+            const userId = request.user?.id
+
+            const totalRes = await query(
+                `SELECT COUNT(*)::int as total
+                 FROM lessons l
+                 JOIN modules m ON m.id = l.module_id
+                 WHERE m.course_id = $1`,
+                [id]
+            )
+
+            const completedRes = await query(
+                `SELECT COUNT(*)::int as completed
+                 FROM user_progress up
+                 JOIN lessons l ON l.id = up.lesson_id
+                 JOIN modules m ON m.id = l.module_id
+                 WHERE m.course_id = $1
+                   AND up.user_id = $2
+                   AND up.is_completed = TRUE`,
+                [id, userId]
+            )
+
+            const total = Number(totalRes.rows[0]?.total || 0)
+            const completed = Number(completedRes.rows[0]?.completed || 0)
+            const percent = total > 0 ? Math.round((completed / total) * 100) : 0
+
+            return { total, completed, percent }
+        } catch (e: any) {
+            server.log.error(`[Courses] Progress fetch error: ${e.message}`)
+            return reply.status(500).send({ error: 'Failed to fetch progress', details: e.message })
+        }
+    })
+
+    // POST /courses/lessons/:lessonId/complete — mark lesson completed
+    server.post('/lessons/:lessonId/complete', { preValidation: [server.authenticate] }, async (request: any, reply) => {
+        try {
+            const { lessonId } = request.params as { lessonId: string }
+            const userId = request.user?.id
+
+            await query(
+                `INSERT INTO user_progress (id, user_id, lesson_id, is_completed, completed_at)
+                 VALUES ($1, $2, $3, TRUE, NOW())
+                 ON CONFLICT (user_id, lesson_id)
+                 DO UPDATE SET is_completed = TRUE, completed_at = NOW()`,
+                [crypto.randomUUID(), userId, lessonId]
+            )
+
+            try {
+                await query(
+                    `INSERT INTO audit_logs (user_id, action, details)
+                     VALUES ($1, 'COMPLETE_LESSON', $2)`,
+                    [userId, JSON.stringify({ lesson_id: lessonId })]
+                )
+            } catch {
+                // ignore audit issues to keep completion flow stable
+            }
+
+            return { success: true }
+        } catch (e: any) {
+            server.log.error(`[Courses] Complete lesson error: ${e.message}`)
+            return reply.status(500).send({ error: 'Failed to complete lesson', details: e.message })
         }
     })
 

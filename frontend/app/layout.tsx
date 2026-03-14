@@ -10,6 +10,7 @@ export const metadata: Metadata = {
 };
 
 import { LanguageProvider } from "@/context/LanguageContext";
+import GlobalUpdateBanner from "@/components/GlobalUpdateBanner";
 
 export default function RootLayout({
   children,
@@ -20,6 +21,7 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className="antialiased">
         <LanguageProvider>
+          <GlobalUpdateBanner />
           {children}
         </LanguageProvider>
       </body>

@@ -66,6 +66,11 @@ export default function StudentDashboard() {
 
     if (!user) return null;
 
+    const totalLessons = courses.reduce((sum, c) => sum + Number(c.lessons_count || 0), 0);
+    const completedLessons = courses.reduce((sum, c) => sum + Number(c.completed_lessons || 0), 0);
+    const inProgressLessons = Math.max(0, totalLessons - completedLessons);
+    const overallProgress = totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0;
+
     const firstName = user.name?.split(' ')[0] || user.name;
 
     return (
@@ -105,18 +110,15 @@ export default function StudentDashboard() {
                     {[
                         { label: t('common.academy'), active: true, href: '/dashboard/academy' },
                         { label: t('common.progress'), active: false, href: '/dashboard/profile' },
-                        // Signals is not part of Stage A: disable without "coming soon" toast
-                        { label: t('common.signals'), active: false, disabled: true },
+                        { label: t('common.faq'), active: false, href: '/dashboard/faq' },
                     ].map(item => (
                         <button
                             key={item.label}
                             onClick={() => {
-                                if (item.disabled) return;
                                 if (item.href) router.push(item.href);
                             }}
-                            disabled={(item as any).disabled}
                             className={cn(
-                                "px-4 py-2 rounded-xl text-sm font-medium transition-all text-slate-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                                "px-4 py-2 rounded-xl text-sm font-medium transition-all text-slate-400 hover:text-white"
                             )}
                             style={item.active ? {
                                 background: 'linear-gradient(135deg, rgba(123,63,228,0.2), rgba(42,169,255,0.1))',
@@ -175,6 +177,12 @@ export default function StudentDashboard() {
                             >
                                 <Settings size={16} /> {t('common.settings')}
                             </button>
+                            <button
+                                onClick={() => router.push('/dashboard/faq')}
+                                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all text-left"
+                            >
+                                <BookOpen size={16} /> {t('common.faq')}
+                            </button>
                             <div className="h-px bg-white/5 my-1" />
                             <button
                                 onClick={handleLogout}
@@ -204,6 +212,9 @@ export default function StudentDashboard() {
                         </h1>
                         <p className="mt-3 text-lg" style={{ color: '#7B8CA6' }}>
                             {t('common.aiGuidance')}
+                        </p>
+                        <p className="mt-2 text-sm" style={{ color: '#A87BFF' }}>
+                            Level: <strong>{user.tradingLevel || 'Beginner'}</strong>
                         </p>
                     </motion.div>
 
@@ -272,9 +283,9 @@ export default function StudentDashboard() {
                                     </h3>
                                     <div className="space-y-4">
                                         {[
-                                            { label: 'Technical Analysis', val: 78, color: '#7B3FE4' },
-                                            { label: 'Risk Management', val: 92, color: '#10B981' },
-                                            { label: 'Psychology', val: 65, color: '#2AA9FF' }
+                                            { label: 'Technical Analysis', val: Math.max(20, overallProgress), color: '#7B3FE4' },
+                                            { label: 'Risk Management', val: Math.max(20, Math.min(100, overallProgress + 10)), color: '#10B981' },
+                                            { label: 'Psychology', val: Math.max(20, Math.min(100, overallProgress - 5)), color: '#2AA9FF' }
                                         ].map(skill => (
                                             <div key={skill.label}>
                                                 <div className="flex justify-between text-xs mb-1.5">
@@ -302,8 +313,8 @@ export default function StudentDashboard() {
                 <section className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12">
                     {[
                         { icon: BookOpen, label: t('common.courses'), value: courses.length, color: '#7B3FE4', sub: 'available' },
-                        { icon: Play, label: t('common.inProgress'), value: 0, color: '#2AA9FF', sub: t('common.lessons') },
-                        { icon: Award, label: t('common.completed'), value: 0, color: '#10B981', sub: t('common.lessons') },
+                        { icon: Play, label: t('common.inProgress'), value: inProgressLessons, color: '#2AA9FF', sub: t('common.lessons') },
+                        { icon: Award, label: t('common.completed'), value: completedLessons, color: '#10B981', sub: t('common.lessons') },
                         { icon: Brain, label: 'AI Sessions', value: '∞', color: '#F59E0B', sub: 'unlimited' },
                     ].map(({ icon: Icon, label, value, color, sub }) => (
                         <motion.div
@@ -404,11 +415,11 @@ export default function StudentDashboard() {
                                             </div>
                                         </div>
                                         {/* Progress bar */}
-                                        <div className="mt-4">
-                                            <div className="h-1 w-full rounded-full" style={{ background: 'rgba(123,63,228,0.15)' }}>
-                                                <div className="h-full rounded-full" style={{ width: '0%', background: 'linear-gradient(90deg, #7B3FE4, #2AA9FF)' }} />
+                                            <div className="mt-4">
+                                                <div className="h-1 w-full rounded-full" style={{ background: 'rgba(123,63,228,0.15)' }}>
+                                                    <div className="h-full rounded-full" style={{ width: `${Number(course.progress_percent || 0)}%`, background: 'linear-gradient(90deg, #7B3FE4, #2AA9FF)' }} />
+                                                </div>
                                             </div>
-                                        </div>
                                     </div>
                                 </motion.div>
                             ))}

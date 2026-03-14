@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { useLanguage } from '@/context/LanguageContext';
 import {
   ArrowLeft,
+  BookOpen,
   Brain,
   ChevronDown,
   ChevronRight,
@@ -31,6 +32,8 @@ type LessonDetails = {
   module_id: string;
   module_title: string;
   next_lesson_id?: string | null;
+  is_completed?: boolean;
+  completed_at?: string | null;
 };
 
 export default function LessonPage({ params }: { params: { id: string } }) {
@@ -41,6 +44,7 @@ export default function LessonPage({ params }: { params: { id: string } }) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingPdf, setIsLoadingPdf] = useState(false);
+  const [isCompleting, setIsCompleting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const pdfObjectUrlRef = useRef<string | null>(null);
 
@@ -121,6 +125,20 @@ export default function LessonPage({ params }: { params: { id: string } }) {
     return `Explain this lesson and give me 3 actionable takeaways:\n\nLesson: ${lesson.title}\nSummary: ${lesson.summary || ''}`;
   }, [lesson]);
 
+  const markLessonCompleted = async () => {
+    if (!lesson?.id || lesson.is_completed || isCompleting) return;
+    setIsCompleting(true);
+    try {
+      await api.post(`/courses/lessons/${lesson.id}/complete`);
+      setLesson((prev) => prev ? { ...prev, is_completed: true, completed_at: new Date().toISOString() } : prev);
+      showToast('Lesson marked as completed');
+    } catch (e: any) {
+      showToast(e.response?.data?.error || 'Failed to mark lesson as completed');
+    } finally {
+      setIsCompleting(false);
+    }
+  };
+
   if (!user) return null;
 
   return (
@@ -189,6 +207,9 @@ export default function LessonPage({ params }: { params: { id: string } }) {
               <button onClick={() => router.push('/dashboard/settings')} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all text-left">
                 <Settings size={16} /> {t('common.settings')}
               </button>
+              <button onClick={() => router.push('/dashboard/faq')} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all text-left">
+                <BookOpen size={16} /> {t('common.faq')}
+              </button>
               <div className="h-px bg-white/5 my-1" />
               <button onClick={handleLogout} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-red-400 hover:bg-red-400/10 transition-all text-left">
                 <LogOutIcon size={16} /> {t('common.logout')}
@@ -205,14 +226,33 @@ export default function LessonPage({ params }: { params: { id: string } }) {
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all"
             style={{ background: '#111A2F', border: '1px solid rgba(123,63,228,0.2)', color: '#A87BFF' }}
           >
-            <ArrowLeft size={16} /> {t('common.back') || 'Back'}
+            <ArrowLeft size={16} /> {t('common.back')}
           </button>
 
           <div className="flex items-center gap-2">
             <button
+              onClick={markLessonCompleted}
+              disabled={!lesson || !!lesson.is_completed || isCompleting}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all disabled:opacity-50"
+              style={{ background: '#111A2F', border: '1px solid rgba(16,185,129,0.4)', color: '#6EE7B7' }}
+            >
+              {isCompleting ? <Loader2 size={16} className="animate-spin" /> : null}
+              {lesson?.is_completed ? 'Completed' : 'Mark complete'}
+            </button>
+            <button
               onClick={() => {
                 // open AI and prefill via localStorage (no dead buttons)
                 localStorage.setItem('ai_prefill', askAiPrompt);
+                if (lesson) {
+                  localStorage.setItem('ai_lesson_context', JSON.stringify({
+                    courseId: lesson.course_id,
+                    courseTitle: lesson.course_title,
+                    moduleTitle: lesson.module_title,
+                    lessonId: lesson.id,
+                    lessonTitle: lesson.title,
+                    lessonSummary: lesson.summary || '',
+                  }));
+                }
                 router.push('/ai');
               }}
               disabled={!lesson}
@@ -260,6 +300,11 @@ export default function LessonPage({ params }: { params: { id: string } }) {
                   {lesson.summary}
                 </p>
               )}
+              <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ background: lesson.is_completed ? 'rgba(16,185,129,0.12)' : 'rgba(123,63,228,0.12)', border: `1px solid ${lesson.is_completed ? 'rgba(16,185,129,0.35)' : 'rgba(123,63,228,0.25)'}` }}>
+                <span className="text-xs font-bold" style={{ color: lesson.is_completed ? '#6EE7B7' : '#A87BFF' }}>
+                  {lesson.is_completed ? 'Lesson completed' : 'In progress'}
+                </span>
+              </div>
             </motion.div>
 
             <div className="glass-card overflow-hidden" style={{ border: '1px solid rgba(123,63,228,0.15)' }}>
@@ -301,4 +346,3 @@ export default function LessonPage({ params }: { params: { id: string } }) {
     </div>
   );
 }
-

@@ -11,10 +11,9 @@ import {
     History,
     LogOut as LogOutIcon,
     ChevronRight,
-    ShieldCheck,
     MessageSquare,
     Library,
-    Zap
+    HelpCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Cookies from 'js-cookie';
@@ -34,6 +33,7 @@ export default function Sidebar() {
         { icon: Library, label: t('admin.importLibrary'), href: '/admin/import' },
         { icon: MessageSquare, label: t('admin.aiResponses'), href: '/admin/ai' },
         { icon: History, label: t('admin.auditLogs'), href: '/admin/logs' },
+        { icon: HelpCircle, label: t('admin.help'), href: '/admin/help' },
     ];
 
     const handleLogout = () => {
