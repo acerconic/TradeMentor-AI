@@ -32,6 +32,7 @@ interface ImportResult {
     success: boolean;
     course_title?: string;
     lesson_title?: string;
+    lessons_created?: number;
     category?: string;
     error?: string;
 }
@@ -117,7 +118,8 @@ export default function ImportLibraryPage() {
 
             setUploadResult(res.data);
             if (res.data.success) {
-                showToast(`✅ PDF ingested! Created lesson: "${res.data.lesson_title}"`, 'success');
+                const lessonsCreated = Number(res.data.lessons_created) || 1;
+                showToast(`✅ PDF ingested! Created ${lessonsCreated} lesson${lessonsCreated > 1 ? 's' : ''}.`, 'success');
             } else {
                 showToast(res.data.error || 'Ingestion failed', 'error');
             }
@@ -287,7 +289,8 @@ export default function ImportLibraryPage() {
                                     <div className="flex gap-4 mt-2">
                                         <span className="text-xs font-bold badge-purple px-2.5 py-1 rounded-full">{uploadResult.category}</span>
                                         <span className="text-xs" style={{ color: '#7B8CA6' }}>Course: <strong className="text-white">{uploadResult.course_title}</strong></span>
-                                        <span className="text-xs" style={{ color: '#7B8CA6' }}>Lesson: <strong className="text-white">{uploadResult.lesson_title}</strong></span>
+                                        <span className="text-xs" style={{ color: '#7B8CA6' }}>First lesson: <strong className="text-white">{uploadResult.lesson_title}</strong></span>
+                                        <span className="text-xs" style={{ color: '#7B8CA6' }}>Total lessons: <strong className="text-white">{uploadResult.lessons_created || 1}</strong></span>
                                     </div>
                                 ) : (
                                     <p className="text-sm mt-1" style={{ color: '#F87171' }}>{uploadResult.error}</p>

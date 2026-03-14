@@ -11,6 +11,8 @@ import { useLanguage } from '@/context/LanguageContext';
 import {
   ArrowLeft,
   BookOpen,
+  CheckCircle2,
+  Circle,
   ChevronDown,
   ChevronRight,
   FileText,
@@ -22,7 +24,7 @@ import {
   User,
 } from 'lucide-react';
 
-type Lesson = { id: string; title: string; summary?: string; pdf_path?: string; sort_order?: number; position?: number };
+type Lesson = { id: string; title: string; summary?: string; pdf_path?: string; sort_order?: number; position?: number; is_completed?: boolean };
 type Module = { id: string; title: string; sort_order?: number; lessons?: Lesson[] };
 
 export default function CoursePage({ params }: { params: { id: string } }) {
@@ -85,6 +87,19 @@ export default function CoursePage({ params }: { params: { id: string } }) {
       if (first?.id) return first.id;
     }
     return null;
+  }, [modules]);
+
+  const progress = useMemo(() => {
+    let total = 0;
+    let completed = 0;
+    for (const courseModule of modules) {
+      for (const lesson of (courseModule.lessons || [])) {
+        total += 1;
+        if (lesson.is_completed) completed += 1;
+      }
+    }
+    const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+    return { total, completed, percent };
   }, [modules]);
 
   if (!user) return null;
@@ -155,6 +170,9 @@ export default function CoursePage({ params }: { params: { id: string } }) {
               <button onClick={() => router.push('/dashboard/settings')} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all text-left">
                 <Settings size={16} /> {t('common.settings')}
               </button>
+              <button onClick={() => router.push('/dashboard/faq')} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all text-left">
+                <BookOpen size={16} /> {t('common.faq')}
+              </button>
               <div className="h-px bg-white/5 my-1" />
               <button onClick={handleLogout} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-red-400 hover:bg-red-400/10 transition-all text-left">
                 <LogOutIcon size={16} /> {t('common.logout')}
@@ -171,7 +189,7 @@ export default function CoursePage({ params }: { params: { id: string } }) {
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all"
             style={{ background: '#111A2F', border: '1px solid rgba(123,63,228,0.2)', color: '#A87BFF' }}
           >
-            <ArrowLeft size={16} /> {t('common.back') || 'Back'}
+            <ArrowLeft size={16} /> {t('common.back')}
           </button>
 
           {firstLessonId && (
@@ -209,6 +227,15 @@ export default function CoursePage({ params }: { params: { id: string } }) {
                   {course.description}
                 </p>
               )}
+              <div className="mt-4 rounded-xl p-4" style={{ background: 'rgba(17,26,47,0.7)', border: '1px solid rgba(123,63,228,0.15)' }}>
+                <div className="flex items-center justify-between text-xs" style={{ color: '#7B8CA6' }}>
+                  <span>Progress: {progress.completed}/{progress.total} lessons</span>
+                  <span className="font-bold" style={{ color: '#A87BFF' }}>{progress.percent}%</span>
+                </div>
+                <div className="mt-2 h-2 rounded-full" style={{ background: 'rgba(123,63,228,0.15)' }}>
+                  <div className="h-full rounded-full transition-all" style={{ width: `${progress.percent}%`, background: 'linear-gradient(90deg, #7B3FE4, #2AA9FF)' }} />
+                </div>
+              </div>
             </motion.div>
 
             <div className="space-y-3">
@@ -272,6 +299,17 @@ export default function CoursePage({ params }: { params: { id: string } }) {
                                           {lesson.summary}
                                         </p>
                                       )}
+                                      <div className="flex items-center gap-3 mt-1">
+                                        {lesson.is_completed ? (
+                                          <span className="inline-flex items-center gap-1 text-[10px] font-bold" style={{ color: '#10B981' }}>
+                                            <CheckCircle2 size={11} /> Completed
+                                          </span>
+                                        ) : (
+                                          <span className="inline-flex items-center gap-1 text-[10px] font-bold" style={{ color: '#7B8CA6' }}>
+                                            <Circle size={11} /> Not completed
+                                          </span>
+                                        )}
+                                      </div>
                                       {lesson.pdf_path && (
                                         <div className="flex items-center gap-1 mt-1">
                                           <FileText size={11} style={{ color: '#7B3FE4' }} />
@@ -299,4 +337,3 @@ export default function CoursePage({ params }: { params: { id: string } }) {
     </div>
   );
 }
-

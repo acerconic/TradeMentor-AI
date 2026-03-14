@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { Suspense, useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Send,
@@ -19,6 +19,7 @@ import { useRouter } from 'next/navigation';
 import { useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { useLanguage } from '@/context/LanguageContext';
 
 interface Message {
     role: 'user' | 'assistant';
@@ -27,11 +28,12 @@ interface Message {
     timestamp: Date;
 }
 
-export default function AIChatPage() {
+function AIChatPageContent() {
+    const { t } = useLanguage();
     const [messages, setMessages] = useState<Message[]>([
         {
             role: 'assistant',
-            content: "Hello! I am your TradeMentor AI. I specialize in SMC/ICT, market structure, and trading psychology. How can I help you refine your edge today?",
+            content: "TradeMentor AI online. Ask anything about SMC/ICT, market structure, risk management and psychology.",
             timestamp: new Date()
         }
     ]);
@@ -40,6 +42,7 @@ export default function AIChatPage() {
     const [toastMessage, setToastMessage] = useState<string | null>(null);
     const [selectedImage, setSelectedImage] = useState<File | null>(null);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [lessonContext, setLessonContext] = useState<any | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const router = useRouter();
@@ -48,11 +51,6 @@ export default function AIChatPage() {
     const showToast = (msg: string) => {
         setToastMessage(msg);
         setTimeout(() => setToastMessage(null), 3000);
-    };
-
-    const handleFeatureSoon = (e: React.MouseEvent, feature: string) => {
-        e.preventDefault();
-        showToast(`${feature} feature is coming soon!`);
     };
 
     const removeImage = () => {
@@ -65,31 +63,31 @@ export default function AIChatPage() {
         setMessages([
             {
                 role: 'assistant',
-                content: "Hello! I am your TradeMentor AI. I specialize in SMC/ICT, market structure, and trading psychology. How can I help you refine your edge today?",
+                content: "TradeMentor AI online. Ask anything about SMC/ICT, market structure, risk management and psychology.",
                 timestamp: new Date()
             }
         ]);
         setInput('');
         removeImage();
-        showToast("Chat history cleared");
+        showToast(t('ai.clearChat'));
     };
 
     const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
             if (file.type !== 'image/jpeg' && file.type !== 'image/png') {
-                showToast("Only JPEG and PNG images are allowed");
+                showToast(t('ai.imageFormatError'));
                 return;
             }
             if (file.size > 5 * 1024 * 1024) {
-                showToast("Image must be less than 5MB");
+                showToast(t('ai.imageTooLarge'));
                 return;
             }
             setSelectedImage(file);
             const reader = new FileReader();
             reader.onloadend = () => {
                 setImagePreview(reader.result as string);
-                showToast("Image attached! Ready to send.");
+                showToast(t('ai.imageAttached'));
             };
             reader.readAsDataURL(file);
         }
@@ -113,8 +111,19 @@ export default function AIChatPage() {
         if (stored && stored.trim()) {
             setInput(stored);
             localStorage.removeItem('ai_prefill');
-            return;
         }
+
+        const contextRaw = typeof window !== 'undefined' ? localStorage.getItem('ai_lesson_context') : null;
+        if (contextRaw) {
+            try {
+                setLessonContext(JSON.parse(contextRaw));
+                showToast(t('ai.contextAttached'));
+            } catch {
+                // ignore invalid context payload
+            }
+            localStorage.removeItem('ai_lesson_context');
+        }
+
         const q = searchParams.get('q');
         if (q && q.trim()) setInput(q);
     }, [searchParams]);
@@ -138,6 +147,9 @@ export default function AIChatPage() {
             const payload: any = { message: input };
             if (imagePreview) {
                 payload.image = imagePreview;
+            }
+            if (lessonContext) {
+                payload.context = lessonContext;
             }
             const res = await api.post('/ai/chat', payload);
             const aiResponse: Message = {
@@ -184,14 +196,14 @@ export default function AIChatPage() {
                         className="flex items-center text-slate-400 hover:text-white transition-colors mb-8 group"
                     >
                         <ArrowLeft size={18} className="mr-2 group-hover:-translate-x-1 transition-transform" />
-                        Back to Dashboard
+                        {t('ai.backToDashboard')}
                     </button>
 
                     <div className="space-y-6">
                         <div className="p-4 bg-primary/10 rounded-2xl border border-primary/20 space-y-3">
                             <div className="flex items-center text-primary font-bold text-sm">
                                 <Sparkles size={16} className="mr-2" />
-                                Trading Mentor Mode
+                                {t('ai.title')}
                             </div>
                             <p className="text-xs text-slate-400 leading-relaxed">
                                 AI is currently operating in "Strict Mentor" mode. It will only answer trading-related questions.
@@ -243,10 +255,10 @@ export default function AIChatPage() {
                             <Bot size={28} />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold">AI Trading Mentor</h2>
+                            <h2 className="text-xl font-bold">{t('ai.title')}</h2>
                             <div className="flex items-center text-[10px] text-emerald-500 font-bold uppercase tracking-widest space-x-2">
                                 <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                                <span>Always Online</span>
+                                <span>{t('ai.subtitle')}</span>
                             </div>
                         </div>
                     </div>
@@ -256,7 +268,7 @@ export default function AIChatPage() {
                             <ImageIcon size={20} />
                         </button>
                         <button onClick={handleClearChat} className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-slate-300 hover:text-white transition-all text-xs font-bold">
-                            Clear Chat
+                            {t('ai.clearChat')}
                         </button>
                     </div>
                 </div>
@@ -315,7 +327,7 @@ export default function AIChatPage() {
                             </div>
                             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center space-x-2">
                                 <Loader2 className="animate-spin text-primary" size={18} />
-                                <span className="text-slate-500 text-sm">Thinking...</span>
+                                <span className="text-slate-500 text-sm">{t('ai.thinking')}</span>
                             </div>
                         </motion.div>
                     )}
@@ -333,8 +345,17 @@ export default function AIChatPage() {
                             <div className="px-6 py-2 flex items-center bg-slate-900/40 border-b border-slate-800/50">
                                 <div className="flex space-x-4 text-slate-500">
                                     <button type="button" onClick={triggerFileInput} className="hover:text-primary transition-colors"><ImageIcon size={18} /></button>
-                                    <button type="button" onClick={(e) => handleFeatureSoon(e, 'Attachments')} className="hover:text-primary transition-colors"><Paperclip size={18} /></button>
-                                    <button type="button" onClick={(e) => handleFeatureSoon(e, 'Chart Analysis')} className="hover:text-primary transition-colors"><TrendingUp size={18} /></button>
+                                    <button type="button" onClick={triggerFileInput} className="hover:text-primary transition-colors"><Paperclip size={18} /></button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const chartPrompt = 'Analyze this chart: trend direction, liquidity zones, high-probability entry, invalidation and risk plan.';
+                                            setInput((prev) => prev.trim() ? `${prev}\n\n${chartPrompt}` : chartPrompt);
+                                        }}
+                                        className="hover:text-primary transition-colors"
+                                    >
+                                        <TrendingUp size={18} />
+                                    </button>
                                 </div>
                             </div>
                             {imagePreview && (
@@ -344,6 +365,14 @@ export default function AIChatPage() {
                                         <span className="text-xs text-slate-400 truncate max-w-[200px]">{selectedImage?.name || 'Image attached'}</span>
                                     </div>
                                     <button type="button" onClick={removeImage} className="text-slate-500 hover:text-red-400 text-xs font-bold">Remove</button>
+                                </div>
+                            )}
+                            {lessonContext && (
+                                <div className="px-6 py-3 bg-slate-900/40 border-b border-slate-800/50 flex items-center justify-between">
+                                    <div className="text-xs text-slate-400">
+                                        Context: <span className="text-white font-semibold">{lessonContext.lessonTitle || 'Lesson context'}</span>
+                                    </div>
+                                    <button type="button" onClick={() => setLessonContext(null)} className="text-slate-500 hover:text-red-400 text-xs font-bold">Remove context</button>
                                 </div>
                             )}
                             <div className="flex items-center p-2">
@@ -357,7 +386,7 @@ export default function AIChatPage() {
                                             handleSend(e);
                                         }
                                     }}
-                                    placeholder="Ask about market structure, liquidity, or trading psychology..."
+                                    placeholder={t('ai.inputPlaceholder')}
                                     className="flex-1 bg-transparent border-none text-white focus:ring-0 placeholder-slate-600 px-4 py-4 resize-none max-h-40"
                                 />
                                 <button
@@ -376,5 +405,13 @@ export default function AIChatPage() {
                 </div>
             </main>
         </div>
+    );
+}
+
+export default function AIChatPage() {
+    return (
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center" style={{ background: '#0B1220', color: '#7B8CA6' }}>Loading AI...</div>}>
+            <AIChatPageContent />
+        </Suspense>
     );
 }

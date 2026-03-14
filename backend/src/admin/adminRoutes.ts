@@ -29,6 +29,17 @@ function generatePassword(length = 16): string {
     return pass
 }
 
+async function touchSystemUpdateToken(reason: string) {
+    const token = `${Date.now()}:${reason}`
+    await query(
+        `INSERT INTO system_state (key, value, updated_at)
+         VALUES ('update_banner_token', $1, NOW())
+         ON CONFLICT (key)
+         DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+        [token]
+    )
+}
+
 export default async function adminRoutes(server: FastifyInstance) {
 
     // ── POST /admin/create-user ───────────────────────────────
@@ -93,7 +104,7 @@ export default async function adminRoutes(server: FastifyInstance) {
         { preValidation: [server.authenticate, requireSuperadmin] },
         async (request: any, reply) => {
             const result = await query(
-                `SELECT id, login, name, role, onboarding_passed, created_at, last_login
+                `SELECT id, login, name, role, onboarding_passed, trading_level, created_at, last_login
          FROM users
          ORDER BY created_at DESC`
             )
@@ -106,12 +117,34 @@ export default async function adminRoutes(server: FastifyInstance) {
         '/logs',
         { preValidation: [server.authenticate, requireSuperadmin] },
         async (request: any, reply) => {
+            const action = String(request.query?.action || '').trim()
+            const search = String(request.query?.search || '').trim()
+            const limit = Math.min(Math.max(parseInt(String(request.query?.limit || '200'), 10) || 200, 1), 500)
+
+            const where: string[] = []
+            const params: any[] = []
+
+            if (action) {
+                params.push(action)
+                where.push(`al.action = $${params.length}`)
+            }
+
+            if (search) {
+                params.push(`%${search}%`)
+                where.push(`(u.login ILIKE $${params.length} OR COALESCE(al.details, '') ILIKE $${params.length})`)
+            }
+
+            params.push(limit)
+            const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
+
             const result = await query(
                 `SELECT al.*, u.login as user_login
                  FROM audit_logs al
                  LEFT JOIN users u ON al.user_id = u.id
+                 ${whereSql}
                  ORDER BY al.created_at DESC
-                 LIMIT 200`
+                 LIMIT $${params.length}`,
+                params
             )
             return result.rows
         }
@@ -138,11 +171,33 @@ export default async function adminRoutes(server: FastifyInstance) {
                     aiInteractions = aiResult.rows[0].count;
                 } catch (e) { /* Ignore if table doesnt exist yet */ }
 
+                let importedMaterials = 0
+                let processedMaterials = 0
+                try {
+                    const materialRes = await query(`SELECT COUNT(*) FILTER (WHERE status = 'processed') AS processed, COUNT(*) AS total FROM uploaded_materials`)
+                    importedMaterials = parseInt(materialRes.rows[0]?.total || 0, 10) || 0
+                    processedMaterials = parseInt(materialRes.rows[0]?.processed || 0, 10) || 0
+                } catch {
+                    importedMaterials = 0
+                    processedMaterials = 0
+                }
+
+                let recentActivity = 0
+                try {
+                    const recentRes = await query(`SELECT COUNT(*) AS count FROM audit_logs WHERE created_at >= NOW() - INTERVAL '24 hours'`)
+                    recentActivity = parseInt(recentRes.rows[0]?.count || 0, 10) || 0
+                } catch {
+                    recentActivity = 0
+                }
+
                 return {
                     totalStudents: parseInt(totalStudents) || 0,
                     activeCourses: parseInt(activeCourses) || 0,
                     aiInteractions: parseInt(aiInteractions as any) || 0,
-                    systemAlerts: 0 // Dummy or could be based on failed ai_requests
+                    importedMaterials,
+                    processedMaterials,
+                    recentActivity,
+                    systemAlerts: 0
                 }
             } catch (err) {
                 server.log.error(err)
@@ -192,12 +247,17 @@ export default async function adminRoutes(server: FastifyInstance) {
                 // Ingestion runs in-request for now (stable + returns created ids)
                 const result = await ingestPdf(filePath, originalName, server.log);
 
+                if (result.success) {
+                    try { await touchSystemUpdateToken('import_pdf') } catch { /* ignore */ }
+                }
+
                 return {
                     success: result.success,
                     course_id: result.course_id,
                     course_title: result.course_title,
                     lesson_id: result.lesson_id,
                     lesson_title: result.lesson_title,
+                    lessons_created: result.lessons_created,
                     category: result.category,
                     material_id: result.material_id,
                     error: result.error
@@ -217,6 +277,9 @@ export default async function adminRoutes(server: FastifyInstance) {
             try {
                 server.log.info('[Admin] Starting library scan...');
                 const result = await scanLibrary(server.log);
+                if (result.processed > 0) {
+                    try { await touchSystemUpdateToken('import_library') } catch { /* ignore */ }
+                }
                 return {
                     message: `Processed ${result.processed}/${result.total} PDFs (${result.skipped} skipped, ${result.failed} failed)`,
                     total: result.total,
@@ -239,7 +302,7 @@ export default async function adminRoutes(server: FastifyInstance) {
         async (request: any, reply) => {
             try {
                 const result = await query(
-                    `SELECT id, original_name, detected_category, status, error_message, course_id, lesson_id, created_at
+                    `SELECT id, original_name, detected_category, status, error_message, course_id, lesson_id, ai_metadata, created_at
                      FROM uploaded_materials
                      ORDER BY created_at DESC
                      LIMIT 100`
@@ -248,6 +311,66 @@ export default async function adminRoutes(server: FastifyInstance) {
             } catch (err: any) {
                 // Table may not exist yet
                 return [];
+            }
+        }
+    )
+
+    // ── GET /admin/ai-requests (List AI messages) ───────────────
+    server.get(
+        '/ai-requests',
+        { preValidation: [server.authenticate, requireSuperadmin] },
+        async (request: any, reply) => {
+            try {
+                const search = String(request.query?.search || '').trim()
+                const where = search ? `WHERE u.login ILIKE $1 OR ar.message ILIKE $1 OR ar.response ILIKE $1` : ''
+                const params = search ? [`%${search}%`] : []
+
+                const result = await query(
+                    `SELECT ar.id, ar.user_id, ar.type, ar.message, ar.response, ar.provider, ar.metadata, ar.created_at,
+                            u.login AS user_login
+                     FROM ai_requests ar
+                     LEFT JOIN users u ON u.id = ar.user_id
+                     ${where}
+                     ORDER BY ar.created_at DESC
+                     LIMIT 200`,
+                    params
+                )
+                return result.rows
+            } catch (err: any) {
+                server.log.error(err)
+                return reply.status(500).send({ error: 'Failed to fetch AI requests', details: err.message })
+            }
+        }
+    )
+
+    // ── GET /admin/recent-activity ──────────────────────────────
+    server.get(
+        '/recent-activity',
+        { preValidation: [server.authenticate, requireSuperadmin] },
+        async (_request: any, reply) => {
+            try {
+                const logs = await query(
+                    `SELECT al.id, al.action, al.details, al.created_at, u.login AS user_login
+                     FROM audit_logs al
+                     LEFT JOIN users u ON u.id = al.user_id
+                     ORDER BY al.created_at DESC
+                     LIMIT 20`
+                )
+
+                const imports = await query(
+                    `SELECT id, original_name, status, created_at, course_id
+                     FROM uploaded_materials
+                     ORDER BY created_at DESC
+                     LIMIT 20`
+                ).catch(() => ({ rows: [] as any[] }))
+
+                return {
+                    logs: logs.rows,
+                    imports: imports.rows,
+                }
+            } catch (err: any) {
+                server.log.error(err)
+                return reply.status(500).send({ error: 'Failed to fetch activity', details: err.message })
             }
         }
     )

@@ -18,6 +18,17 @@ interface Course {
     level: string; language: string; created_at: string;
     modules_count: number; lessons_count: number;
 }
+interface ImportedMaterial {
+    id: string;
+    original_name: string;
+    detected_category: string | null;
+    status: 'pending' | 'processed' | 'failed';
+    error_message: string | null;
+    course_id: string | null;
+    lesson_id: string | null;
+    ai_metadata?: string | null;
+    created_at: string;
+}
 
 const LEVEL_COLORS: Record<string, string> = {
     Beginner: 'badge-green', Intermediate: 'badge-amber', Advanced: 'badge-blue'
@@ -31,6 +42,7 @@ export default function AdminCourses() {
     const [courses, setCourses] = useState<Course[]>([]);
     const [expandedCourse, setExpandedCourse] = useState<string | null>(null);
     const [courseModules, setCourseModules] = useState<Record<string, Module[]>>({});
+    const [materialsByCourse, setMaterialsByCourse] = useState<Record<string, ImportedMaterial[]>>({});
     const [isLoading, setIsLoading] = useState(true);
     const [loadingModules, setLoadingModules] = useState<string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -52,8 +64,19 @@ export default function AdminCourses() {
     const fetchCourses = async () => {
         setIsLoading(true);
         try {
-            const res = await api.get('/admin/courses');
-            setCourses(res.data || []);
+            const [coursesRes, materialsRes] = await Promise.all([
+                api.get('/admin/courses'),
+                api.get('/admin/materials')
+            ]);
+            setCourses(coursesRes.data || []);
+
+            const grouped: Record<string, ImportedMaterial[]> = {};
+            for (const material of (materialsRes.data || []) as ImportedMaterial[]) {
+                if (!material.course_id) continue;
+                if (!grouped[material.course_id]) grouped[material.course_id] = [];
+                grouped[material.course_id].push(material);
+            }
+            setMaterialsByCourse(grouped);
         } catch (e: any) {
             showToast(e.response?.data?.details || 'Failed to load courses', false);
         } finally {
@@ -114,6 +137,16 @@ export default function AdminCourses() {
         c.title.toLowerCase().includes(search.toLowerCase()) ||
         (c.category || '').toLowerCase().includes(search.toLowerCase())
     );
+
+    const getLessonsCreatedFromMaterial = (material: ImportedMaterial): number => {
+        try {
+            const meta = material.ai_metadata ? JSON.parse(material.ai_metadata) : null;
+            const fromMeta = Number(meta?.lessons_created || 0);
+            return fromMeta > 0 ? fromMeta : 1;
+        } catch {
+            return 1;
+        }
+    };
 
     return (
         <div className="space-y-8 relative">
@@ -289,45 +322,96 @@ export default function AdminCourses() {
                                                         Import a PDF to auto-create lessons
                                                     </p>
                                                 </div>
-                                            ) : courseModules[course.id].map(mod => (
-                                                <div key={mod.id} className="rounded-xl p-4" style={{ background: 'rgba(11,18,32,0.6)', border: '1px solid rgba(123,63,228,0.1)' }}>
-                                                    <div className="flex items-center gap-2 mb-3">
-                                                        <Layers size={14} style={{ color: '#2AA9FF' }} />
-                                                        <span className="text-sm font-bold text-white">{mod.title}</span>
-                                                        <span className="text-xs badge-blue px-2 py-0.5 rounded-full">
-                                                            {(mod.lessons || []).length} lessons
-                                                        </span>
-                                                    </div>
-                                                    {(mod.lessons || []).length === 0 ? (
-                                                        <p className="text-xs pl-5" style={{ color: '#3D4D63' }}>No lessons in this module</p>
-                                                    ) : (
-                                                        <div className="space-y-2">
-                                                            {(mod.lessons || []).map((lesson, li) => (
-                                                                <button
-                                                                    key={lesson.id}
-                                                                    onClick={() => router.push(`/admin/lessons/${lesson.id}`)}
-                                                                    className="w-full flex items-start gap-3 pl-5 py-2 rounded-lg hover:bg-white/[0.03] transition-colors text-left"
-                                                                >
-                                                                    <div className="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold mt-0.5 shrink-0"
-                                                                        style={{ background: 'rgba(123,63,228,0.2)', color: '#A87BFF' }}>
-                                                                        {li + 1}
-                                                                    </div>
-                                                                    <div>
-                                                                        <p className="text-sm font-semibold text-white">{lesson.title}</p>
-                                                                        {lesson.summary && <p className="text-xs mt-0.5 line-clamp-2" style={{ color: '#7B8CA6' }}>{lesson.summary}</p>}
-                                                                        {lesson.pdf_path && (
-                                                                            <div className="flex items-center gap-1 mt-1">
-                                                                                <FileText size={10} style={{ color: '#7B3FE4' }} />
-                                                                                <span className="text-[10px]" style={{ color: '#7B3FE4' }}>PDF attached</span>
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                </button>
-                                                            ))}
+                                            ) : (
+                                                <>
+                                                    {course.description && (
+                                                        <div className="rounded-xl p-4" style={{ background: 'rgba(11,18,32,0.55)', border: '1px solid rgba(42,169,255,0.15)' }}>
+                                                            <p className="text-xs font-black uppercase tracking-widest" style={{ color: '#7B8CA6' }}>Course Summary</p>
+                                                            <p className="text-sm mt-2" style={{ color: '#C8D4E8' }}>{course.description}</p>
                                                         </div>
                                                     )}
-                                                </div>
-                                            ))}
+
+                                                    {courseModules[course.id].map(mod => (
+                                                        <div key={mod.id} className="rounded-xl p-4" style={{ background: 'rgba(11,18,32,0.6)', border: '1px solid rgba(123,63,228,0.1)' }}>
+                                                            <div className="flex items-center gap-2 mb-3">
+                                                                <Layers size={14} style={{ color: '#2AA9FF' }} />
+                                                                <span className="text-sm font-bold text-white">{mod.title}</span>
+                                                                <span className="text-xs badge-blue px-2 py-0.5 rounded-full">
+                                                                    {(mod.lessons || []).length} lessons
+                                                                </span>
+                                                            </div>
+                                                            {(mod.lessons || []).length === 0 ? (
+                                                                <p className="text-xs pl-5" style={{ color: '#3D4D63' }}>No lessons in this module</p>
+                                                            ) : (
+                                                                <div className="space-y-2">
+                                                                    {(mod.lessons || []).map((lesson, li) => (
+                                                                        <button
+                                                                            key={lesson.id}
+                                                                            onClick={() => router.push(`/admin/lessons/${lesson.id}`)}
+                                                                            className="w-full flex items-start gap-3 pl-5 py-2 rounded-lg hover:bg-white/[0.03] transition-colors text-left"
+                                                                        >
+                                                                            <div className="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold mt-0.5 shrink-0"
+                                                                                style={{ background: 'rgba(123,63,228,0.2)', color: '#A87BFF' }}>
+                                                                                {li + 1}
+                                                                            </div>
+                                                                            <div>
+                                                                                <p className="text-sm font-semibold text-white">{lesson.title}</p>
+                                                                                {lesson.summary && <p className="text-xs mt-0.5 line-clamp-2" style={{ color: '#7B8CA6' }}>{lesson.summary}</p>}
+                                                                                {lesson.pdf_path && (
+                                                                                    <div className="flex items-center gap-1 mt-1">
+                                                                                        <FileText size={10} style={{ color: '#7B3FE4' }} />
+                                                                                        <span className="text-[10px]" style={{ color: '#7B3FE4' }}>PDF attached</span>
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ))}
+
+                                                    <div className="rounded-xl p-4" style={{ background: 'rgba(11,18,32,0.55)', border: '1px solid rgba(123,63,228,0.14)' }}>
+                                                        <div className="flex items-center justify-between mb-3">
+                                                            <p className="text-sm font-bold text-white">Imported Materials</p>
+                                                            <button
+                                                                onClick={() => router.push('/admin/import')}
+                                                                className="text-xs font-bold px-3 py-1.5 rounded-lg"
+                                                                style={{ background: 'rgba(123,63,228,0.15)', color: '#A87BFF' }}
+                                                            >
+                                                                Open Import Library
+                                                            </button>
+                                                        </div>
+
+                                                        {(materialsByCourse[course.id] || []).length === 0 ? (
+                                                            <p className="text-xs" style={{ color: '#7B8CA6' }}>
+                                                                No imported materials linked to this course yet.
+                                                            </p>
+                                                        ) : (
+                                                            <div className="space-y-2">
+                                                                {(materialsByCourse[course.id] || []).map((material) => (
+                                                                    <div key={material.id} className="p-3 rounded-lg" style={{ background: 'rgba(17,26,47,0.8)', border: '1px solid rgba(42,169,255,0.12)' }}>
+                                                                        <div className="flex items-center justify-between gap-3">
+                                                                            <p className="text-sm font-semibold text-white truncate">{material.original_name}</p>
+                                                                            <span className={cn(
+                                                                                'px-2 py-0.5 rounded-full text-[10px] font-black uppercase',
+                                                                                material.status === 'processed' ? 'badge-green' : material.status === 'failed' ? 'badge-amber' : 'badge-blue'
+                                                                            )}>
+                                                                                {material.status}
+                                                                            </span>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-4 mt-2 text-xs" style={{ color: '#7B8CA6' }}>
+                                                                            <span>Lessons created: <strong className="text-white">{getLessonsCreatedFromMaterial(material)}</strong></span>
+                                                                            {material.detected_category && <span>Category: <strong className="text-white">{material.detected_category}</strong></span>}
+                                                                            <span>{new Date(material.created_at).toLocaleString()}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </>
+                                            )}
                                         </div>
                                     </motion.div>
                                 )}
