@@ -13,6 +13,8 @@ const ChatSchema = z.object({
         lessonTitle: z.string().optional(),
         lessonSummary: z.string().optional(),
         moduleTitle: z.string().optional(),
+        lessonContent: z.string().optional(),
+        glossary: z.any().optional(),
     }).optional(),
 })
 
@@ -86,35 +88,73 @@ export default async function aiRoutes(server: FastifyInstance) {
                 if (context?.lessonId) {
                     try {
                         const lessonRes = await query(
-                            `SELECT l.title, l.summary, l.content, m.title AS module_title, c.title AS course_title, c.level AS course_level
+                            `SELECT l.title,
+                                    COALESCE(CASE WHEN $2 = 'UZ' THEN l.summary_uz ELSE l.summary_ru END, l.summary) as summary,
+                                    l.content,
+                                    l.content_ru,
+                                    l.content_uz,
+                                    l.key_points_json,
+                                    l.glossary_json,
+                                    m.title AS module_title,
+                                    c.title AS course_title,
+                                    c.level AS course_level
                              FROM lessons l
                              JOIN modules m ON m.id = l.module_id
                              JOIN courses c ON c.id = m.course_id
                              WHERE l.id = $1
                              LIMIT 1`,
-                            [context.lessonId]
+                            [context.lessonId, userLanguage]
                         )
                         if (lessonRes.rows.length) {
                             const row = lessonRes.rows[0]
-                            const contentSnippet = String(row.content || '').replace(/\s+/g, ' ').substring(0, 1800)
+
+                            const localizedContent =
+                                userLanguage === 'UZ'
+                                    ? (row.content_uz || row.content || '')
+                                    : (row.content_ru || row.content || '')
+
+                            const keyPoints = Array.isArray(row.key_points_json?.[userLanguage])
+                                ? row.key_points_json[userLanguage].slice(0, 6).join(' | ')
+                                : ''
+
+                            const glossary = Array.isArray(row.glossary_json?.[userLanguage])
+                                ? row.glossary_json[userLanguage]
+                                    .slice(0, 6)
+                                    .map((item: any) => `${item.term}: ${item.definition}`)
+                                    .join(' | ')
+                                : ''
+
+                            const contentSnippet = String(localizedContent || '').replace(/\s+/g, ' ').substring(0, 1800)
                             lessonContextText = `
 Current lesson context:
 - Course: ${row.course_title}
 - Module: ${row.module_title}
 - Lesson: ${row.title}
 - Lesson summary: ${row.summary || ''}
+- Key points: ${keyPoints}
+- Glossary: ${glossary}
 - Lesson content snippet: ${contentSnippet}`
                         }
                     } catch (e: any) {
                         server.log.warn(`Failed to load lesson context: ${e.message}`)
                     }
                 } else if (context) {
+                    const fallbackGlossary = Array.isArray(context.glossary)
+                        ? context.glossary
+                            .slice(0, 6)
+                            .map((item: any) => `${item.term || ''}: ${item.definition || ''}`)
+                            .join(' | ')
+                        : ''
+
                     lessonContextText = `
 Current lesson context:
 - Course: ${context.courseTitle || ''}
 - Module: ${context.moduleTitle || ''}
 - Lesson: ${context.lessonTitle || ''}
-- Lesson summary: ${context.lessonSummary || ''}`
+- Lesson summary: ${context.lessonSummary || ''}
+- Lesson content snippet: ${String(context.lessonContent || '').replace(/\s+/g, ' ').substring(0, 1500)}
+- Glossary: ${fallbackGlossary}
+`
                 }
 
                 // System prompt for TradeMentor AI

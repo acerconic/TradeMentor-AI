@@ -24,6 +24,7 @@ interface AIClassification {
     lesson_title: string;
     summary: string;
     language: 'RU' | 'UZ';
+    source_language: string;
 }
 
 interface ExtractedPdfText {
@@ -35,6 +36,28 @@ interface LessonPlanItem {
     title: string;
     summary: string;
     sourceText: string;
+}
+
+interface StructuredLessonContent {
+    summary_ru: string;
+    summary_uz: string;
+    content_source: string;
+    content_ru: string;
+    content_uz: string;
+    key_points_ru: string[];
+    key_points_uz: string[];
+    glossary_ru: Array<{ term: string; definition: string }>;
+    glossary_uz: Array<{ term: string; definition: string }>;
+    practice_ru: string;
+    practice_uz: string;
+    conclusion_ru: string;
+    conclusion_uz: string;
+    additional_ru: string;
+    additional_uz: string;
+}
+
+interface EnrichedLessonPlanItem extends LessonPlanItem {
+    structured: StructuredLessonContent;
 }
 
 interface IngestionResult {
@@ -82,8 +105,9 @@ function normalizeClassification(input: Partial<AIClassification>, fallbackName:
     const lesson_title = clamp(safe(input.lesson_title) || safe(fallbackName).replace(/\.pdf$/i, ''), 60);
     const summary = clamp(safe(input.summary) || `A comprehensive guide on ${lesson_title} for professional traders.`, 1000);
     const language = normalizeLanguage(input.language, fallbackName, summary);
+    const source_language = normalizeSourceLanguage(input.source_language, fallbackName, summary);
 
-    return { category, course_title, module_title, lesson_title, summary, language };
+    return { category, course_title, module_title, lesson_title, summary, language, source_language };
 }
 
 function normalizeLanguage(value: any, filename: string, contentSample = ''): 'RU' | 'UZ' {
@@ -102,6 +126,32 @@ function normalizeLanguage(value: any, filename: string, contentSample = ''): 'R
     if (cyrillicMatches > 80) return 'RU';
     if (uzLatinHints >= 3) return 'UZ';
     return 'RU';
+}
+
+function normalizeSourceLanguage(value: any, filename: string, contentSample = ''): string {
+    const normalized = String(value || '').trim().toUpperCase();
+    if (normalized && normalized.length <= 8) {
+        if (normalized === 'RUSSIAN') return 'RU';
+        if (normalized === 'UZBEK' || normalized === 'UZBEKISTAN') return 'UZ';
+        if (normalized === 'ENGLISH') return 'EN';
+        return normalized;
+    }
+
+    const filenameLower = String(filename || '').toLowerCase();
+    if (/(^|[^a-z])(ru|rus)([^a-z]|$)/.test(filenameLower)) return 'RU';
+    if (/(^|[^a-z])(uz|uzb)([^a-z]|$)/.test(filenameLower)) return 'UZ';
+    if (/(^|[^a-z])(en|eng)([^a-z]|$)/.test(filenameLower)) return 'EN';
+
+    const text = String(contentSample || '');
+    const cyrillicMatches = (text.match(/[а-яА-ЯёЁ]/g) || []).length;
+    const uzLatinHints = (text.match(/\b(uchun|bozor|savdo|dars|daraja|xatar|psixologiya|kurs|modul|likvid|tahlil)\b/gi) || []).length;
+    const enHints = (text.match(/\b(the|and|with|market|trading|risk|entry|liquidity|trend)\b/gi) || []).length;
+
+    if (cyrillicMatches > 80) return 'RU';
+    if (uzLatinHints >= 3) return 'UZ';
+    if (enHints >= 6) return 'EN';
+
+    return 'UNKNOWN';
 }
 
 // ── PDF Text Extraction ──────────────────────────────────────
@@ -163,6 +213,7 @@ ${extractedText}
 
 Return ONLY this JSON (no markdown, no explanation):
 {
+  "source_language": "ISO-like source language code, e.g. RU/UZ/EN/TR/AR",
   "language": "RU or UZ (detected main language of this PDF)",
   "category": "one of: SMC, ICT, Price Action, Risk Management, Psychology, Fundamental, Technical, Other",
   "course_title": "suggested course title (short, max 50 chars)",
@@ -227,6 +278,7 @@ function classifyFromFilename(filename: string): AIClassification {
 
     return {
         language: normalizeLanguage('', filename, name),
+        source_language: normalizeSourceLanguage('', filename, name),
         category,
         course_title: category + ' Trading Mastery',
         module_title: 'Core Concepts',
@@ -480,10 +532,174 @@ async function buildLessonPlan(
     return { moduleTitle: classification.module_title, lessons: grouped };
 }
 
+function normalizeGlossary(raw: any): Array<{ term: string; definition: string }> {
+    if (!Array.isArray(raw)) return [];
+    return raw
+        .map((item) => ({
+            term: sanitizeTitle(String(item?.term || ''), '', 80),
+            definition: sanitizeSummary(String(item?.definition || ''), '', 350),
+        }))
+        .filter((item) => item.term && item.definition)
+        .slice(0, 25);
+}
+
+function normalizeStringArray(raw: any, maxItems = 15): string[] {
+    if (!Array.isArray(raw)) return [];
+    return raw
+        .map((item) => sanitizeSummary(String(item || ''), '', 280))
+        .filter(Boolean)
+        .slice(0, maxItems);
+}
+
+async function generateStructuredLessonContent(
+    lesson: LessonPlanItem,
+    classification: AIClassification,
+    sourceLanguage: string,
+    originalFileName: string,
+    index: number,
+    log?: FastifyBaseLogger
+): Promise<StructuredLessonContent> {
+    const sourceSnippet = lesson.sourceText.replace(/\s+/g, ' ').substring(0, 9000);
+
+    const prompt = `You are a professional trading education editor.
+Goal: transform source material into a structured lesson while preserving author's terminology and meaning.
+
+File: ${originalFileName}
+Detected source language: ${sourceLanguage}
+Course: ${classification.course_title}
+Module: ${classification.module_title}
+Lesson title: ${lesson.title}
+Lesson index: ${index + 1}
+
+Source content:
+${sourceSnippet}
+
+Return ONLY valid JSON with this shape:
+{
+  "summary_ru": "short concise summary in Russian",
+  "summary_uz": "short concise summary in Uzbek",
+  "content_source": "clean explanation in source language",
+  "content_ru": "full lesson explanation in Russian",
+  "content_uz": "full lesson explanation in Uzbek",
+  "key_points_ru": ["..."],
+  "key_points_uz": ["..."],
+  "glossary_ru": [{"term":"...", "definition":"..."}],
+  "glossary_uz": [{"term":"...", "definition":"..."}],
+  "practice_ru": "practical task / checklist in Russian",
+  "practice_uz": "practical task / checklist in Uzbek",
+  "conclusion_ru": "lesson conclusion in Russian",
+  "conclusion_uz": "lesson conclusion in Uzbek",
+  "additional_ru": "optional useful clarifications in Russian",
+  "additional_uz": "optional useful clarifications in Uzbek"
+}
+
+Rules:
+- Keep original trading terms and definitions accurate.
+- Do NOT invent facts that are absent in source.
+- Make explanation pedagogical and clear.
+- Keep RU and UZ high quality and natural.`;
+
+    const models = [
+        'meta-llama/llama-3.3-70b-instruct',
+        'meta-llama/llama-3.1-70b-instruct',
+        'meta-llama/llama-3.1-8b-instruct:free',
+    ];
+
+    let lastError = '';
+    for (const model of models) {
+        try {
+            const data = await openRouterService.chat(model, [
+                { role: 'system', content: 'Return only valid JSON. No markdown, no prose.' },
+                { role: 'user', content: prompt }
+            ], undefined);
+
+            const raw = data?.choices?.[0]?.message?.content || '';
+            const jsonMatch = raw.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) throw new Error('No JSON in lesson generation response');
+
+            const parsed = JSON.parse(jsonMatch[0]);
+
+            const summaryRu = sanitizeSummary(parsed?.summary_ru, lesson.summary || classification.summary, 1200);
+            const summaryUz = sanitizeSummary(parsed?.summary_uz, summaryRu, 1200);
+
+            const contentSource = sanitizeSummary(parsed?.content_source, lesson.sourceText || lesson.summary || classification.summary, 12000);
+            const contentRu = sanitizeSummary(parsed?.content_ru, summaryRu, 15000);
+            const contentUz = sanitizeSummary(parsed?.content_uz, summaryUz, 15000);
+
+            const keyPointsRu = normalizeStringArray(parsed?.key_points_ru, 15);
+            const keyPointsUz = normalizeStringArray(parsed?.key_points_uz, 15);
+
+            const glossaryRu = normalizeGlossary(parsed?.glossary_ru);
+            const glossaryUz = normalizeGlossary(parsed?.glossary_uz);
+
+            const practiceRu = sanitizeSummary(parsed?.practice_ru, summaryRu, 3000);
+            const practiceUz = sanitizeSummary(parsed?.practice_uz, summaryUz, 3000);
+
+            const conclusionRu = sanitizeSummary(parsed?.conclusion_ru, summaryRu, 2500);
+            const conclusionUz = sanitizeSummary(parsed?.conclusion_uz, summaryUz, 2500);
+
+            const additionalRu = sanitizeSummary(parsed?.additional_ru, '', 3000);
+            const additionalUz = sanitizeSummary(parsed?.additional_uz, '', 3000);
+
+            return {
+                summary_ru: summaryRu,
+                summary_uz: summaryUz,
+                content_source: contentSource,
+                content_ru: contentRu,
+                content_uz: contentUz,
+                key_points_ru: keyPointsRu,
+                key_points_uz: keyPointsUz,
+                glossary_ru: glossaryRu,
+                glossary_uz: glossaryUz,
+                practice_ru: practiceRu,
+                practice_uz: practiceUz,
+                conclusion_ru: conclusionRu,
+                conclusion_uz: conclusionUz,
+                additional_ru: additionalRu,
+                additional_uz: additionalUz,
+            };
+        } catch (e: any) {
+            lastError = e.message;
+            if (log) log.warn(`[Ingestion] Structured lesson generation failed for model ${model}: ${e.message}`);
+        }
+    }
+
+    throw new Error(`Structured lesson generation failed for "${lesson.title}": ${lastError || 'unknown error'}`);
+}
+
+async function enrichLessonPlanWithStructuredContent(
+    lessonPlan: { moduleTitle: string; lessons: LessonPlanItem[] },
+    classification: AIClassification,
+    sourceLanguage: string,
+    originalFileName: string,
+    log?: FastifyBaseLogger
+): Promise<{ moduleTitle: string; lessons: EnrichedLessonPlanItem[] }> {
+    const enrichedLessons: EnrichedLessonPlanItem[] = [];
+
+    for (let index = 0; index < lessonPlan.lessons.length; index++) {
+        const lesson = lessonPlan.lessons[index];
+        const structured = await generateStructuredLessonContent(
+            lesson,
+            classification,
+            sourceLanguage,
+            originalFileName,
+            index,
+            log
+        );
+
+        enrichedLessons.push({ ...lesson, structured });
+    }
+
+    return {
+        moduleTitle: lessonPlan.moduleTitle,
+        lessons: enrichedLessons,
+    };
+}
+
 // ── Course / Module / Lesson Upsert ──────────────────────────
 async function upsertCourseModuleLessons(
     classification: AIClassification,
-    lessonPlan: { moduleTitle: string; lessons: LessonPlanItem[] },
+    lessonPlan: { moduleTitle: string; lessons: EnrichedLessonPlanItem[] },
     pdfPath: string
 ): Promise<{ course_id: string; module_id: string; lesson_id: string; lessons_created: number }> {
     return withTransaction(async (client) => {
@@ -579,14 +795,67 @@ async function upsertCourseModuleLessons(
             const content = lesson.sourceText?.trim() || summary;
             const existing = byLowerTitle.get(title.toLowerCase());
 
+            const keyPointsJson = {
+                RU: lesson.structured.key_points_ru,
+                UZ: lesson.structured.key_points_uz,
+            };
+            const glossaryJson = {
+                RU: lesson.structured.glossary_ru,
+                UZ: lesson.structured.glossary_uz,
+            };
+            const practiceNotesJson = {
+                RU: lesson.structured.practice_ru,
+                UZ: lesson.structured.practice_uz,
+            };
+            const conclusionJson = {
+                RU: lesson.structured.conclusion_ru,
+                UZ: lesson.structured.conclusion_uz,
+            };
+            const additionalNotesJson = {
+                RU: lesson.structured.additional_ru,
+                UZ: lesson.structured.additional_uz,
+            };
+
             let lessonId = existing?.id || '';
             if (existing) {
                 try {
                     await client.query(
                         `UPDATE lessons
-                         SET content = $1, summary = $2, pdf_path = $3, language = $4, updated_at = NOW()
-                         WHERE id = $5`,
-                        [content, summary, pdfPath, classification.language, existing.id]
+                         SET content = $1,
+                             summary = $2,
+                             pdf_path = $3,
+                             language = $4,
+                             source_language = $5,
+                             content_source = $6,
+                             content_ru = $7,
+                             content_uz = $8,
+                             summary_ru = $9,
+                             summary_uz = $10,
+                             key_points_json = $11,
+                             glossary_json = $12,
+                             practice_notes = $13,
+                             conclusion_json = $14,
+                             additional_notes_json = $15,
+                             updated_at = NOW()
+                         WHERE id = $16`,
+                        [
+                            content,
+                            summary,
+                            pdfPath,
+                            classification.language,
+                            classification.source_language,
+                            lesson.structured.content_source,
+                            lesson.structured.content_ru,
+                            lesson.structured.content_uz,
+                            lesson.structured.summary_ru,
+                            lesson.structured.summary_uz,
+                            JSON.stringify(keyPointsJson),
+                            JSON.stringify(glossaryJson),
+                            JSON.stringify(practiceNotesJson),
+                            JSON.stringify(conclusionJson),
+                            JSON.stringify(additionalNotesJson),
+                            existing.id,
+                        ]
                     );
                 } catch (e: any) {
                     if (!isPgUndefinedColumnError(e)) throw e;
@@ -599,10 +868,44 @@ async function upsertCourseModuleLessons(
                 maxSort += 1;
                 try {
                     const created = await client.query(
-                        `INSERT INTO lessons (id, module_id, title, content, summary, pdf_path, language, sort_order, position, created_at, updated_at)
-                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, NOW(), NOW())
+                        `INSERT INTO lessons (
+                            id, module_id, title,
+                            content, summary, pdf_path, language,
+                            source_language, content_source, content_ru, content_uz,
+                            summary_ru, summary_uz,
+                            key_points_json, glossary_json, practice_notes, conclusion_json, additional_notes_json,
+                            sort_order, position, created_at, updated_at
+                         )
+                         VALUES (
+                            $1, $2, $3,
+                            $4, $5, $6, $7,
+                            $8, $9, $10, $11,
+                            $12, $13,
+                            $14, $15, $16, $17, $18,
+                            $19, $19, NOW(), NOW()
+                         )
                          RETURNING id`,
-                        [crypto.randomUUID(), moduleId, title, content, summary, pdfPath, classification.language, maxSort]
+                        [
+                            crypto.randomUUID(),
+                            moduleId,
+                            title,
+                            content,
+                            summary,
+                            pdfPath,
+                            classification.language,
+                            classification.source_language,
+                            lesson.structured.content_source,
+                            lesson.structured.content_ru,
+                            lesson.structured.content_uz,
+                            lesson.structured.summary_ru,
+                            lesson.structured.summary_uz,
+                            JSON.stringify(keyPointsJson),
+                            JSON.stringify(glossaryJson),
+                            JSON.stringify(practiceNotesJson),
+                            JSON.stringify(conclusionJson),
+                            JSON.stringify(additionalNotesJson),
+                            maxSort,
+                        ]
                     );
                     lessonId = created.rows[0].id;
                 } catch (e: any) {
@@ -664,16 +967,27 @@ export async function ingestPdf(
         // 2. AI Classification
         if (log) log.info(`[Ingestion] Classifying with AI: ${originalFileName}`);
         const classification = await classifyWithAI(extractedText, originalFileName, log);
+        const sourceLanguage = normalizeSourceLanguage(classification.source_language, originalFileName, fullText || extractedText);
         if (log) log.info(`[Ingestion] Classified: ${JSON.stringify(classification)}`);
 
         // 3. Build lesson structure from extracted content
         if (log) log.info(`[Ingestion] Building lesson plan: ${originalFileName}`);
         const lessonPlan = await buildLessonPlan(classification, originalFileName, fullText || extractedText, log);
 
-        // 4. Upsert Course → Module → Lessons
-        const { course_id, lesson_id, lessons_created } = await upsertCourseModuleLessons(classification, lessonPlan, filePath);
+        // 4. Generate structured multilingual content for each lesson (RU + UZ)
+        if (log) log.info(`[Ingestion] Generating multilingual lesson content: ${originalFileName}`);
+        const enrichedLessonPlan = await enrichLessonPlanWithStructuredContent(
+            lessonPlan,
+            classification,
+            sourceLanguage,
+            originalFileName,
+            log
+        );
 
-        // 5. Update material record
+        // 5. Upsert Course → Module → Lessons
+        const { course_id, lesson_id, lessons_created } = await upsertCourseModuleLessons(classification, enrichedLessonPlan, filePath);
+
+        // 6. Update material record
         await query(
             `UPDATE uploaded_materials SET 
                 extracted_text = $1,
@@ -688,6 +1002,7 @@ export async function ingestPdf(
                 classification.category,
                 JSON.stringify({
                     ...classification,
+                    source_language: sourceLanguage,
                     module_title: lessonPlan.moduleTitle,
                     lessons_created,
                     lesson_titles: lessonPlan.lessons.map(l => l.title)
@@ -787,9 +1102,22 @@ export async function scanLibrary(log?: FastifyBaseLogger): Promise<{
 
                     const validLinks = courseExists.rows.length > 0 && lessonExists.rows.length > 0;
                     if (validLinks) {
-                        if (log) log.info(`[scanLibrary] Skipping (already processed): ${file}`);
-                        skipped++;
-                        continue;
+                        // For new multilingual lesson system, ensure generated content exists.
+                        const lessonContentRes = await query(
+                            `SELECT content_ru, content_uz FROM lessons WHERE id = $1 LIMIT 1`,
+                            [row.lesson_id]
+                        ).catch(() => ({ rows: [] as any[] }));
+
+                        const lessonRow = lessonContentRes.rows[0];
+                        const hasMultilingualContent = !!lessonRow?.content_ru && !!lessonRow?.content_uz;
+
+                        if (hasMultilingualContent) {
+                            if (log) log.info(`[scanLibrary] Skipping (already processed): ${file}`);
+                            skipped++;
+                            continue;
+                        }
+
+                        if (log) log.info(`[scanLibrary] Reprocessing material without multilingual lesson content: ${file}`);
                     }
                 }
 

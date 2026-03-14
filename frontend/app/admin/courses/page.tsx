@@ -167,6 +167,16 @@ export default function AdminCourses() {
         }
     };
 
+    const getSourceLanguageFromMaterial = (material: ImportedMaterial): string => {
+        try {
+            const meta = material.ai_metadata ? JSON.parse(material.ai_metadata) : null;
+            const source = String(meta?.source_language || '').toUpperCase();
+            return source || 'UNKNOWN';
+        } catch {
+            return 'UNKNOWN';
+        }
+    };
+
     return (
         <div className="space-y-8 relative">
             {/* Toast */}
@@ -431,6 +441,7 @@ export default function AdminCourses() {
                                                                         </div>
                                                                         <div className="flex items-center gap-4 mt-2 text-xs" style={{ color: '#7B8CA6' }}>
                                                                             <span>Lessons created: <strong className="text-white">{getLessonsCreatedFromMaterial(material)}</strong></span>
+                                                                            <span>Source language: <strong className="text-white">{getSourceLanguageFromMaterial(material)}</strong></span>
                                                                             {material.detected_category && <span>Category: <strong className="text-white">{material.detected_category}</strong></span>}
                                                                             <span>{new Date(material.created_at).toLocaleString()}</span>
                                                                         </div>

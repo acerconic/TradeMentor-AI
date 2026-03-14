@@ -26,6 +26,18 @@ type LessonDetails = {
   id: string;
   title: string;
   summary?: string | null;
+  summary_ru?: string | null;
+  summary_uz?: string | null;
+  content?: string | null;
+  content_source?: string | null;
+  content_ru?: string | null;
+  content_uz?: string | null;
+  source_language?: string | null;
+  key_points_json?: any;
+  glossary_json?: any;
+  practice_notes?: any;
+  conclusion_json?: any;
+  additional_notes_json?: any;
   pdf_path?: string | null;
   course_id: string;
   course_title: string;
@@ -42,6 +54,7 @@ export default function LessonPage({ params }: { params: { id: string } }) {
   const [user, setUser] = useState<any>(null);
   const [lesson, setLesson] = useState<LessonDetails | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [showPdf, setShowPdf] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingPdf, setIsLoadingPdf] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
@@ -92,7 +105,7 @@ export default function LessonPage({ params }: { params: { id: string } }) {
 
   useEffect(() => {
     const loadPdf = async () => {
-      if (!lesson?.id) return;
+      if (!lesson?.id || !showPdf) return;
       setIsLoadingPdf(true);
       try {
         const res = await api.get(`/courses/lessons/${lesson.id}/pdf`, { responseType: 'blob' });
@@ -113,7 +126,7 @@ export default function LessonPage({ params }: { params: { id: string } }) {
       }
     };
     loadPdf();
-  }, [lesson?.id]);
+  }, [lesson?.id, showPdf]);
 
   const firstName = useMemo(() => {
     if (!user) return '';
@@ -122,8 +135,58 @@ export default function LessonPage({ params }: { params: { id: string } }) {
 
   const askAiPrompt = useMemo(() => {
     if (!lesson) return '';
-    return `Explain this lesson and give me 3 actionable takeaways:\n\nLesson: ${lesson.title}\nSummary: ${lesson.summary || ''}`;
-  }, [lesson]);
+    const localizedSummary = language === 'UZ'
+      ? (lesson.summary_uz || lesson.summary || '')
+      : (lesson.summary_ru || lesson.summary || '');
+
+    const localizedContent = language === 'UZ'
+      ? (lesson.content_uz || lesson.content_source || lesson.content || '')
+      : (lesson.content_ru || lesson.content_source || lesson.content || '');
+
+    const keyPointsRaw = lesson.key_points_json?.[language];
+    const keyPoints = Array.isArray(keyPointsRaw) ? keyPointsRaw.slice(0, 6).join('\n- ') : '';
+
+    return `Explain this lesson and give me 3 actionable takeaways:\n\nCourse: ${lesson.course_title}\nLesson: ${lesson.title}\nSummary: ${localizedSummary}\nKey points:\n- ${keyPoints}\n\nLesson content:\n${localizedContent.slice(0, 3000)}`;
+  }, [lesson, language]);
+
+  const localizedSummary = useMemo(() => {
+    if (!lesson) return '';
+    return language === 'UZ'
+      ? (lesson.summary_uz || lesson.summary || '')
+      : (lesson.summary_ru || lesson.summary || '');
+  }, [lesson, language]);
+
+  const localizedExplanation = useMemo(() => {
+    if (!lesson) return '';
+    return language === 'UZ'
+      ? (lesson.content_uz || lesson.content_source || lesson.content || '')
+      : (lesson.content_ru || lesson.content_source || lesson.content || '');
+  }, [lesson, language]);
+
+  const keyPoints = useMemo(() => {
+    const arr = lesson?.key_points_json?.[language];
+    return Array.isArray(arr) ? arr : [];
+  }, [lesson, language]);
+
+  const glossary = useMemo(() => {
+    const arr = lesson?.glossary_json?.[language];
+    return Array.isArray(arr) ? arr : [];
+  }, [lesson, language]);
+
+  const practiceNotes = useMemo(() => {
+    const value = lesson?.practice_notes?.[language];
+    return typeof value === 'string' ? value : '';
+  }, [lesson, language]);
+
+  const conclusion = useMemo(() => {
+    const value = lesson?.conclusion_json?.[language];
+    return typeof value === 'string' ? value : '';
+  }, [lesson, language]);
+
+  const additionalNotes = useMemo(() => {
+    const value = lesson?.additional_notes_json?.[language];
+    return typeof value === 'string' ? value : '';
+  }, [lesson, language]);
 
   const markLessonCompleted = async () => {
     if (!lesson?.id || lesson.is_completed || isCompleting) return;
@@ -250,7 +313,9 @@ export default function LessonPage({ params }: { params: { id: string } }) {
                     moduleTitle: lesson.module_title,
                     lessonId: lesson.id,
                     lessonTitle: lesson.title,
-                    lessonSummary: lesson.summary || '',
+                    lessonSummary: localizedSummary || '',
+                    lessonContent: localizedExplanation.slice(0, 3500),
+                    glossary: glossary.slice(0, 12),
                   }));
                 }
                 router.push('/ai');
@@ -261,6 +326,16 @@ export default function LessonPage({ params }: { params: { id: string } }) {
             >
               <Brain size={16} /> {t('common.askAI')}
             </button>
+            {lesson?.pdf_path && (
+              <button
+                onClick={() => setShowPdf((prev) => !prev)}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all"
+                style={{ background: '#111A2F', border: '1px solid rgba(42,169,255,0.3)', color: '#2AA9FF' }}
+              >
+                <FileText size={16} />
+                {showPdf ? (language === 'UZ' ? 'Original PDF ni yashirish' : 'Скрыть оригинальный PDF') : (language === 'UZ' ? 'Original PDF ni ochish' : 'Открыть оригинальный PDF')}
+              </button>
+            )}
             {lesson?.next_lesson_id && (
               <button
                 onClick={() => router.push(`/dashboard/lessons/${lesson.next_lesson_id}`)}
@@ -295,9 +370,9 @@ export default function LessonPage({ params }: { params: { id: string } }) {
               <h1 className="text-3xl md:text-4xl font-black leading-tight" style={{ fontFamily: 'Outfit, sans-serif', letterSpacing: '-0.03em' }}>
                 {lesson.title}
               </h1>
-              {lesson.summary && (
+              {localizedSummary && (
                 <p className="mt-3 text-sm" style={{ color: '#7B8CA6' }}>
-                  {lesson.summary}
+                  {localizedSummary}
                 </p>
               )}
               <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ background: lesson.is_completed ? 'rgba(16,185,129,0.12)' : 'rgba(123,63,228,0.12)', border: `1px solid ${lesson.is_completed ? 'rgba(16,185,129,0.35)' : 'rgba(123,63,228,0.25)'}` }}>
@@ -307,39 +382,124 @@ export default function LessonPage({ params }: { params: { id: string } }) {
               </div>
             </motion.div>
 
-            <div className="glass-card overflow-hidden" style={{ border: '1px solid rgba(123,63,228,0.15)' }}>
-              <div className="flex items-center justify-between p-4" style={{ borderBottom: '1px solid rgba(123,63,228,0.12)', background: 'rgba(11,18,32,0.4)' }}>
-                <div className="flex items-center gap-2">
-                  <FileText size={16} style={{ color: '#2AA9FF' }} />
-                  <span className="text-sm font-bold text-white">PDF Viewer</span>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              <div className="lg:col-span-2 space-y-5">
+                <div className="glass-card p-6" style={{ border: '1px solid rgba(123,63,228,0.15)' }}>
+                  <p className="text-xs uppercase tracking-wider font-black" style={{ color: '#7B8CA6' }}>
+                    {language === 'UZ' ? 'Asosiy tushuntirish' : 'Основное объяснение'}
+                  </p>
+                  <p className="text-sm mt-3 whitespace-pre-wrap" style={{ color: '#C8D4E8' }}>
+                    {localizedExplanation || (language === 'UZ' ? 'Bu dars uchun matnli kontent hali tayyor emas.' : 'Для этого урока текстовый контент пока не сгенерирован.')}
+                  </p>
                 </div>
-                {isLoadingPdf && (
-                  <div className="flex items-center gap-2 text-xs" style={{ color: '#7B8CA6' }}>
-                    <Loader2 size={14} className="animate-spin" style={{ color: '#7B3FE4' }} />
-                    Loading PDF...
+
+                {conclusion && (
+                  <div className="glass-card p-6" style={{ border: '1px solid rgba(42,169,255,0.2)' }}>
+                    <p className="text-xs uppercase tracking-wider font-black" style={{ color: '#2AA9FF' }}>
+                      {language === 'UZ' ? 'Yakun' : 'Итог'}
+                    </p>
+                    <p className="text-sm mt-3" style={{ color: '#C8D4E8' }}>{conclusion}</p>
+                  </div>
+                )}
+
+                {additionalNotes && (
+                  <div className="glass-card p-6" style={{ border: '1px solid rgba(123,63,228,0.12)' }}>
+                    <p className="text-xs uppercase tracking-wider font-black" style={{ color: '#A87BFF' }}>
+                      {language === 'UZ' ? 'Qo‘shimcha izohlar' : 'Дополнительные пояснения'}
+                    </p>
+                    <p className="text-sm mt-3" style={{ color: '#C8D4E8' }}>{additionalNotes}</p>
                   </div>
                 )}
               </div>
 
-              <div className="p-0" style={{ background: '#0A1020' }}>
-                {pdfUrl ? (
-                  <iframe
-                    title="Lesson PDF"
-                    src={pdfUrl}
-                    className="w-full"
-                    style={{ height: '80vh', border: 'none' }}
-                  />
-                ) : (
-                  <div className="p-10 text-center">
-                    <FileText size={32} style={{ color: '#7B8CA6' }} className="mx-auto mb-2" />
-                    <p className="text-white font-bold">PDF not available</p>
-                    <p className="text-sm mt-1" style={{ color: '#7B8CA6' }}>
-                      This lesson does not have a PDF attached yet.
+              <div className="space-y-5">
+                <div className="glass-card p-5" style={{ border: '1px solid rgba(123,63,228,0.15)' }}>
+                  <p className="text-xs uppercase tracking-wider font-black" style={{ color: '#7B8CA6' }}>
+                    {language === 'UZ' ? 'Asosiy punktlar' : 'Ключевые пункты'}
+                  </p>
+                  {keyPoints.length === 0 ? (
+                    <p className="text-xs mt-3" style={{ color: '#7B8CA6' }}>
+                      {language === 'UZ' ? 'Punktlar hali mavjud emas.' : 'Ключевые пункты пока не заполнены.'}
                     </p>
+                  ) : (
+                    <ul className="mt-3 space-y-2">
+                      {keyPoints.map((point: string, idx: number) => (
+                        <li key={`${idx}-${point}`} className="text-sm" style={{ color: '#C8D4E8' }}>
+                          <span className="text-[#A87BFF] font-black mr-2">{idx + 1}.</span>{point}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="glass-card p-5" style={{ border: '1px solid rgba(42,169,255,0.2)' }}>
+                  <p className="text-xs uppercase tracking-wider font-black" style={{ color: '#2AA9FF' }}>
+                    {language === 'UZ' ? 'Terminlar' : 'Термины'}
+                  </p>
+                  {glossary.length === 0 ? (
+                    <p className="text-xs mt-3" style={{ color: '#7B8CA6' }}>
+                      {language === 'UZ' ? 'Terminlar hali qo‘shilmagan.' : 'Термины пока не добавлены.'}
+                    </p>
+                  ) : (
+                    <div className="mt-3 space-y-2">
+                      {glossary.map((item: any, idx: number) => (
+                        <div key={`${idx}-${item.term}`} className="rounded-lg p-3" style={{ background: 'rgba(11,18,32,0.5)', border: '1px solid rgba(42,169,255,0.12)' }}>
+                          <p className="text-sm font-semibold text-white">{item.term}</p>
+                          <p className="text-xs mt-1" style={{ color: '#C8D4E8' }}>{item.definition}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {practiceNotes && (
+                  <div className="glass-card p-5" style={{ border: '1px solid rgba(16,185,129,0.24)' }}>
+                    <p className="text-xs uppercase tracking-wider font-black" style={{ color: '#10B981' }}>
+                      {language === 'UZ' ? 'Amaliy blok' : 'Практический блок'}
+                    </p>
+                    <p className="text-sm mt-3 whitespace-pre-wrap" style={{ color: '#C8D4E8' }}>{practiceNotes}</p>
                   </div>
                 )}
               </div>
             </div>
+
+            {showPdf && (
+              <div className="glass-card overflow-hidden mt-6" style={{ border: '1px solid rgba(123,63,228,0.15)' }}>
+                <div className="flex items-center justify-between p-4" style={{ borderBottom: '1px solid rgba(123,63,228,0.12)', background: 'rgba(11,18,32,0.4)' }}>
+                  <div className="flex items-center gap-2">
+                    <FileText size={16} style={{ color: '#2AA9FF' }} />
+                    <span className="text-sm font-bold text-white">
+                      {language === 'UZ' ? 'Original PDF' : 'Оригинальный PDF'}
+                    </span>
+                  </div>
+                  {isLoadingPdf && (
+                    <div className="flex items-center gap-2 text-xs" style={{ color: '#7B8CA6' }}>
+                      <Loader2 size={14} className="animate-spin" style={{ color: '#7B3FE4' }} />
+                      Loading PDF...
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-0" style={{ background: '#0A1020' }}>
+                  {pdfUrl ? (
+                    <iframe
+                      title="Lesson PDF"
+                      src={pdfUrl}
+                      className="w-full"
+                      style={{ height: '80vh', border: 'none' }}
+                    />
+                  ) : (
+                    <div className="p-10 text-center">
+                      <FileText size={32} style={{ color: '#7B8CA6' }} className="mx-auto mb-2" />
+                      <p className="text-white font-bold">PDF not available</p>
+                      <p className="text-sm mt-1" style={{ color: '#7B8CA6' }}>
+                        This lesson does not have a PDF attached yet.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </>
         )}
       </main>

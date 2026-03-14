@@ -28,6 +28,7 @@ interface Material {
     error_message: string | null;
     course_id: string | null;
     lesson_id: string | null;
+    ai_metadata?: string | null;
     created_at: string;
 }
 
@@ -144,6 +145,15 @@ export default function ImportLibraryPage() {
 
     const processedCount = materials.filter(m => m.status === 'processed').length;
     const failedCount = materials.filter(m => m.status === 'failed').length;
+
+    const getSourceLanguage = (material: Material) => {
+        try {
+            const meta = material.ai_metadata ? JSON.parse(material.ai_metadata) : null;
+            return String(meta?.source_language || '').toUpperCase() || 'UNKNOWN';
+        } catch {
+            return 'UNKNOWN';
+        }
+    };
 
     return (
         <div className="space-y-8 relative">
@@ -385,6 +395,11 @@ export default function ImportLibraryPage() {
                                                 {mat.status === 'failed' && mat.error_message && (
                                                     <span className="text-[11px]" style={{ color: '#F87171' }}>
                                                         {mat.error_message}
+                                                    </span>
+                                                )}
+                                                {mat.status === 'processed' && (
+                                                    <span className="text-[11px]" style={{ color: '#7B8CA6' }}>
+                                                        Source: {getSourceLanguage(mat)}
                                                     </span>
                                                 )}
                                             </div>

@@ -10,6 +10,17 @@ type LessonDetails = {
   id: string;
   title: string;
   summary?: string | null;
+  summary_ru?: string | null;
+  summary_uz?: string | null;
+  content_source?: string | null;
+  content_ru?: string | null;
+  content_uz?: string | null;
+  source_language?: string | null;
+  key_points_json?: any;
+  glossary_json?: any;
+  practice_notes?: any;
+  conclusion_json?: any;
+  additional_notes_json?: any;
   pdf_path?: string | null;
   course_id: string;
   course_title: string;
@@ -168,6 +179,24 @@ export default function AdminLessonPage({ params }: { params: { id: string } }) 
             </p>
             <h1 className="text-2xl md:text-3xl font-black text-white mt-2">{title}</h1>
             {lesson.summary && <p className="text-sm mt-3" style={{ color: '#7B8CA6' }}>{lesson.summary}</p>}
+            <div className="mt-3 text-xs" style={{ color: '#7B8CA6' }}>
+              Source language: <strong className="text-white">{lesson.source_language || 'Unknown'}</strong>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="glass-card p-5" style={{ border: '1px solid rgba(123,63,228,0.15)' }}>
+              <p className="text-xs uppercase font-black tracking-wider" style={{ color: '#A87BFF' }}>RU lesson content</p>
+              <p className="text-sm mt-2 whitespace-pre-wrap" style={{ color: '#C8D4E8' }}>
+                {(lesson.content_ru || lesson.content_source || '').substring(0, 1600) || 'No generated RU content'}
+              </p>
+            </div>
+            <div className="glass-card p-5" style={{ border: '1px solid rgba(42,169,255,0.15)' }}>
+              <p className="text-xs uppercase font-black tracking-wider" style={{ color: '#2AA9FF' }}>UZ lesson content</p>
+              <p className="text-sm mt-2 whitespace-pre-wrap" style={{ color: '#C8D4E8' }}>
+                {(lesson.content_uz || lesson.content_source || '').substring(0, 1600) || 'No generated UZ content'}
+              </p>
+            </div>
           </div>
 
           <div className="glass-card overflow-hidden" style={{ border: '1px solid rgba(123,63,228,0.15)' }}>

@@ -63,8 +63,19 @@ export async function ensureSchema(server: FastifyInstance) {
         `ALTER TABLE modules ADD COLUMN IF NOT EXISTS position INT DEFAULT 0`,
         // Ensure lessons has summary, pdf_path, position
         `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS summary TEXT`,
+        `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS summary_ru TEXT`,
+        `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS summary_uz TEXT`,
         `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS pdf_path TEXT`,
         `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS language user_language DEFAULT 'RU'`,
+        `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS source_language VARCHAR(20)`,
+        `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS content_source TEXT`,
+        `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS content_ru TEXT`,
+        `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS content_uz TEXT`,
+        `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS key_points_json JSONB`,
+        `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS glossary_json JSONB`,
+        `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS practice_notes JSONB`,
+        `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS conclusion_json JSONB`,
+        `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS additional_notes_json JSONB`,
         `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS position INT DEFAULT 0`,
         // Ensure users has level used for assessment and AI personalization
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS trading_level VARCHAR(20) NOT NULL DEFAULT 'Beginner'`,
@@ -386,6 +397,12 @@ export async function publicCourseRoutes(server: FastifyInstance) {
             const { id } = request.params as { id: string }
             const userId = request.user?.id
 
+            const languageRes = await query(
+                `SELECT language FROM users WHERE id = $1 LIMIT 1`,
+                [userId]
+            )
+            const preferredLanguage = (String(languageRes.rows[0]?.language || 'RU').toUpperCase() === 'UZ') ? 'UZ' : 'RU'
+
             const modules = await query(
                 `SELECT * FROM modules WHERE course_id = $1 ORDER BY sort_order ASC, created_at ASC`,
                 [id]
@@ -393,14 +410,23 @@ export async function publicCourseRoutes(server: FastifyInstance) {
 
             for (const mod of modules.rows) {
                 const lessons = await query(
-                    `SELECT l.id, l.title, l.summary, l.pdf_path, l.language, l.sort_order, l.position, l.created_at
+                    `SELECT l.id,
+                            l.title,
+                            COALESCE(CASE WHEN $3 = 'UZ' THEN l.summary_uz ELSE l.summary_ru END, l.summary) as summary,
+                            l.summary_ru,
+                            l.summary_uz,
+                            l.pdf_path,
+                            l.language,
+                            l.sort_order,
+                            l.position,
+                            l.created_at
                             , COALESCE(up.is_completed, FALSE) as is_completed
                             , up.completed_at
                      FROM lessons l
                      LEFT JOIN user_progress up ON up.lesson_id = l.id AND up.user_id = $2
                      WHERE l.module_id = $1
                      ORDER BY l.sort_order ASC, l.created_at ASC`,
-                    [mod.id, userId]
+                    [mod.id, userId, preferredLanguage]
                 )
                 mod.lessons = lessons.rows
             }
@@ -418,11 +444,29 @@ export async function publicCourseRoutes(server: FastifyInstance) {
             const { lessonId } = request.params as { lessonId: string }
             const userId = request.user?.id
 
+            const languageRes = await query(
+                `SELECT language FROM users WHERE id = $1 LIMIT 1`,
+                [userId]
+            )
+            const preferredLanguage = (String(languageRes.rows[0]?.language || 'RU').toUpperCase() === 'UZ') ? 'UZ' : 'RU'
+
             const res = await query(
                 `SELECT 
                     l.id,
                     l.title,
-                    l.summary,
+                    COALESCE(CASE WHEN $3 = 'UZ' THEN l.summary_uz ELSE l.summary_ru END, l.summary) as summary,
+                    l.summary_ru,
+                    l.summary_uz,
+                    l.content,
+                    l.content_source,
+                    l.content_ru,
+                    l.content_uz,
+                    l.source_language,
+                    l.key_points_json,
+                    l.glossary_json,
+                    l.practice_notes,
+                    l.conclusion_json,
+                    l.additional_notes_json,
                     l.pdf_path,
                     l.language,
                     l.sort_order,
@@ -444,7 +488,7 @@ export async function publicCourseRoutes(server: FastifyInstance) {
                  LEFT JOIN user_progress up ON up.lesson_id = l.id AND up.user_id = $2
                  WHERE l.id = $1
                  LIMIT 1`,
-                [lessonId, userId]
+                [lessonId, userId, preferredLanguage]
             )
 
             if (!res.rows.length) return reply.status(404).send({ error: 'Lesson not found' })
