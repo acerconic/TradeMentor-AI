@@ -500,6 +500,11 @@ export default function AdminCourses() {
                                                                                 Visual/lesson: <strong className="text-white">{meta.visual_blocks_per_lesson.join(', ')}</strong>
                                                                             </p>
                                                                         )}
+                                                                        {Array.isArray(meta?.visual_pages_per_lesson) && (
+                                                                            <p className="text-[11px] mt-1 line-clamp-2" style={{ color: '#9AB1D2' }}>
+                                                                                Visual pages: <strong className="text-white">{meta.visual_pages_per_lesson.map((entry: any) => Array.isArray(entry) ? entry.join('/') : String(entry || '')).join(' | ')}</strong>
+                                                                            </p>
+                                                                        )}
                                                                         {lessonTitles.length > 0 && (
                                                                             <p className="text-[11px] mt-1 line-clamp-2" style={{ color: '#9AB1D2' }}>
                                                                                 Generated lessons: {lessonTitles.join(' · ')}

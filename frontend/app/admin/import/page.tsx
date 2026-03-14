@@ -399,6 +399,11 @@ export default function ImportLibraryPage() {
                                                     {Array.isArray(meta?.visual_blocks_per_lesson) && (
                                                         <p>Visual/lesson: <strong className="text-white">{meta.visual_blocks_per_lesson.join(', ')}</strong></p>
                                                     )}
+                                                    {Array.isArray(meta?.visual_pages_per_lesson) && (
+                                                        <p className="line-clamp-2">
+                                                            Visual pages: <strong className="text-white">{meta.visual_pages_per_lesson.map((entry: any) => Array.isArray(entry) ? entry.join('/') : String(entry || '')).join(' | ')}</strong>
+                                                        </p>
+                                                    )}
                                                     {lessonTitles.length > 0 && (
                                                         <p className="line-clamp-2" style={{ color: '#C8D4E8' }}>
                                                             {lessonTitles.join(' · ')}

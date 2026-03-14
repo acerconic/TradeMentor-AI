@@ -531,6 +531,11 @@ export default function AdminLessonPage({ params }: { params: { id: string } }) 
                     <p className="text-xs mt-1 line-clamp-2" style={{ color: '#C8D4E8' }}>
                       {String(item.importance_ru || item.importance_uz || '')}
                     </p>
+                    {item.page_excerpt && (
+                      <p className="text-[11px] mt-1 line-clamp-2" style={{ color: '#9AB1D2' }}>
+                        {String(item.page_excerpt)}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>

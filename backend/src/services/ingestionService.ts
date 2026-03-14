@@ -56,7 +56,7 @@ interface QuizItem {
 
 interface LessonStepBlock {
     step_id: string;
-    step_type: 'intro' | 'visual' | 'concept' | 'practice' | 'takeaway' | 'quiz';
+    step_type: 'intro' | 'visual' | 'concept' | 'practice' | 'mistakes' | 'takeaway' | 'quiz' | 'next';
     title: string;
     source_excerpt: string;
     explanation: string;
@@ -75,6 +75,9 @@ interface VisualBlockItem {
     caption_uz: string;
     importance_ru: string;
     importance_uz: string;
+    page_excerpt?: string;
+    focus_points_ru?: string[];
+    focus_points_uz?: string[];
 }
 
 interface StructuredLessonContent {
@@ -910,13 +913,58 @@ function pickPageFragments(pageFragments: PdfPageFragment[], pageFrom: number, p
     return (pageFragments || []).slice(0, 2);
 }
 
+function pickVisualCandidates(pageFragments: PdfPageFragment[], pageFrom: number, pageTo: number): PdfPageFragment[] {
+    const inRange = (pageFragments || []).filter((item) => item.page >= pageFrom && item.page <= pageTo);
+    const base = inRange.length > 0 ? inRange : (pageFragments || []);
+
+    const sorted = [...base].sort((a, b) => {
+        const byHint = Number(b.has_visual_hints) - Number(a.has_visual_hints);
+        if (byHint !== 0) return byHint;
+        return Number(a.page) - Number(b.page);
+    });
+
+    const selected: PdfPageFragment[] = [];
+    const seen = new Set<number>();
+    for (const item of sorted) {
+        const page = Math.max(1, Number(item.page) || 1);
+        if (seen.has(page)) continue;
+        selected.push(item);
+        seen.add(page);
+        if (selected.length >= 4) break;
+    }
+
+    return selected;
+}
+
+function splitFocusPoints(text: string, maxItems = 3): string[] {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return [];
+
+    return normalized
+        .split(/(?<=[.!?])\s+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, maxItems)
+        .map((item) => sanitizeSummary(item, '', 160));
+}
+
+function hasStrongJourneyFlow(steps: LessonStepBlock[]): boolean {
+    if (!Array.isArray(steps) || steps.length < 8) return false;
+    const types = steps.map((item) => item.step_type);
+    const visualCount = types.filter((item) => item === 'visual').length;
+    return types.includes('intro') && visualCount >= 2 && types.includes('quiz') && types.includes('next');
+}
+
 function normalizeStepType(value: any): LessonStepBlock['step_type'] {
     const raw = String(value || '').toLowerCase();
     if (raw === 'visual') return 'visual';
     if (raw === 'concept') return 'concept';
     if (raw === 'practice') return 'practice';
+    if (raw === 'mistakes' || raw === 'common_mistakes' || raw === 'errors') return 'mistakes';
     if (raw === 'takeaway') return 'takeaway';
+    if (raw === 'summary' || raw === 'conclusion') return 'takeaway';
     if (raw === 'quiz') return 'quiz';
+    if (raw === 'next' || raw === 'transition' || raw === 'next_lesson') return 'next';
     return 'intro';
 }
 
@@ -958,10 +1006,10 @@ function normalizeLessonSteps(
                 step_id,
                 step_type: normalizeStepType(item?.step_type),
                 title: sanitizeSummary(String(item?.title || ''), titleFallback, 180),
-                source_excerpt: sanitizeSummary(String(item?.source_excerpt || ''), '', 420),
-                explanation: sanitizeSummary(String(item?.explanation || ''), explanationFallback, 1200),
-                what_to_notice: sanitizeSummary(String(item?.what_to_notice || ''), '', 420),
-                visual_hint: sanitizeSummary(String(item?.visual_hint || ''), '', 280),
+                source_excerpt: sanitizeSummary(String(item?.source_excerpt || ''), '', 560),
+                explanation: sanitizeSummary(String(item?.explanation || ''), explanationFallback, 2200),
+                what_to_notice: sanitizeSummary(String(item?.what_to_notice || ''), '', 560),
+                visual_hint: sanitizeSummary(String(item?.visual_hint || ''), '', 420),
                 page_from,
                 page_to,
             } as LessonStepBlock;
@@ -977,161 +1025,307 @@ function buildFallbackLessonSteps(
     content: string,
     keyPoints: string[],
     practice: string,
+    commonMistakes: string[],
     remember: string,
     quiz: QuizItem[],
     pageWindow: { page_from: number; page_to: number },
-    fragments: PdfPageFragment[],
+    visualCandidates: PdfPageFragment[],
     hasVisualHints: boolean
 ): LessonStepBlock[] {
-    const pageHintText = fragments
-        .map((item) => `p.${item.page}: ${sanitizeSummary(item.excerpt, '', 160)}`)
-        .join(' | ');
+    const fallbackPrimary: PdfPageFragment = {
+        page: pageWindow.page_from,
+        excerpt: sanitizeSummary(summary || content, summary, 280),
+        has_visual_hints: hasVisualHints,
+    };
+    const fallbackSecondary: PdfPageFragment = {
+        page: Math.min(pageWindow.page_to, Math.max(pageWindow.page_from, pageWindow.page_from + 1)),
+        excerpt: sanitizeSummary(content || summary, summary, 280),
+        has_visual_hints: hasVisualHints,
+    };
 
-    const introTitle = language === 'UZ' ? 'Kirish va lesson maqsadi' : 'Введение и цель урока';
-    const visualTitle = language === 'UZ' ? 'Kitobdan vizual fragment' : 'Визуальный фрагмент из книги';
-    const conceptTitle = language === 'UZ' ? 'Asosiy tushunchalar' : 'Ключевые концепции';
-    const practiceTitle = language === 'UZ' ? 'Amaliy qo‘llash' : 'Практическое применение';
-    const takeawayTitle = language === 'UZ' ? 'Nimani eslab qolish kerak' : 'Что важно запомнить';
-    const quizTitle = language === 'UZ' ? 'Mini testga tayyorgarlik' : 'Подготовка к мини-тесту';
+    const visualOne = visualCandidates[0] || fallbackPrimary;
+    const visualTwo = visualCandidates[1] || visualCandidates[0] || fallbackSecondary;
 
-    const introExplain = language === 'UZ'
-        ? `Bu dars ${lessonTitle} bo‘yicha asosiy mantiqni bosqichma-bosqich ochib beradi.`
-        : `Этот урок по теме "${lessonTitle}" раскрывает рыночную логику по шагам.`;
-
-    const visualExplain = language === 'UZ'
-        ? 'Quyidagi sahifa fragmentida setup konteksti va muhim signalni ko‘rib chiqing.'
-        : 'Визуальный блок показывает контекст сетапа и сигнал, который нужно подтвердить.';
-
-    const conceptExplain = language === 'UZ'
-        ? 'Ushbu qadamda terminlar va asosiy qoidalar bir tizimga yig‘iladi.'
-        : 'На этом шаге термины и ключевые правила объединяются в рабочую систему.';
-
-    const practiceExplain = language === 'UZ'
-        ? 'Nazariyani chartda qo‘llash uchun aniq execution ketma-ketligi beriladi.'
-        : 'Здесь показана последовательность execution, чтобы перенести теорию на график.';
-
-    const takeawayExplain = language === 'UZ'
-        ? 'Asosiy xulosa va xatolardan saqlanish bo‘yicha checklist.'
-        : 'Итог урока и checklist, который помогает избегать повторяющихся ошибок.';
-
-    const quizExplain = language === 'UZ'
-        ? `Yakunda ${quiz.length} ta savol orqali tushuncha mustahkamlanadi.`
-        : `В конце ${quiz.length} вопросов проверяют понимание именно этого урока.`;
+    const keyPointOne = keyPoints[0] || (language === 'UZ'
+        ? "Signalni doim bozor konteksti bilan baholang."
+        : 'Оценивайте сигнал только в контексте рынка.');
+    const keyPointTwo = keyPoints[1] || (language === 'UZ'
+        ? "Likvidlik va tasdiq signalini birga kuzating."
+        : 'Следите за связкой ликвидности и подтверждения.');
+    const mistakeOne = commonMistakes[0] || (language === 'UZ'
+        ? "Tasdiqsiz kirish."
+        : 'Вход без подтверждения.');
 
     const introStep: LessonStepBlock = {
-        step_id: 'step_intro',
+        step_id: 'step_1_intro',
         step_type: 'intro',
-        title: introTitle,
-        source_excerpt: sanitizeSummary(summary, '', 340),
-        explanation: sanitizeSummary(introExplain, '', 1100),
-        what_to_notice: sanitizeSummary(keyPoints[0] || '', '', 280),
+        title: language === 'UZ' ? 'Step 1: Kirish va dars maqsadi' : 'Step 1: Введение и цель урока',
+        source_excerpt: sanitizeSummary(summary, '', 420),
+        explanation: sanitizeSummary(
+            language === 'UZ'
+                ? `Bu dars "${lessonTitle}" bo'yicha asosiy bozor mantiqini murabbiy uslubida, ketma-ket ochib beradi. Siz dars oxirigacha signalni qayerda izlash, uni qanday tasdiqlash va real chartda qanday qo'llashni aniq tushunasiz.`
+                : `Урок "${lessonTitle}" последовательно раскрывает рыночную логику в формате наставника. К концу прохождения студент понимает, где искать сигнал, чем его подтверждать и как переносить идею в реальный execution на графике.`,
+            '',
+            1800
+        ),
+        what_to_notice: sanitizeSummary(keyPointOne, '', 420),
         visual_hint: '',
         page_from: pageWindow.page_from,
         page_to: pageWindow.page_to,
     };
 
-    const visualStep: LessonStepBlock = {
-        step_id: 'step_visual',
+    const visualStepOne: LessonStepBlock = {
+        step_id: 'step_2_visual_a',
         step_type: 'visual',
-        title: visualTitle,
-        source_excerpt: sanitizeSummary(pageHintText || summary, '', 380),
-        explanation: sanitizeSummary(visualExplain, '', 1100),
-        what_to_notice: sanitizeSummary(
-            keyPoints[1] || (language === 'UZ' ? 'Likvidlik va tasdiq signalini birga kuzating.' : 'Следите за связкой ликвидности и подтверждения.'),
+        title: language === 'UZ' ? 'Step 2: Kitob fragmenti A + AI tahlil' : 'Step 2: Фрагмент книги A + AI разбор',
+        source_excerpt: sanitizeSummary(visualOne.excerpt || summary, '', 480),
+        explanation: sanitizeSummary(
+            language === 'UZ'
+                ? `AI ushbu sahifa fragmentini murabbiy kabi tahlil qiladi: kontekst, trigger va tasdiq signalining mantiqiy zanjiri ko'rsatiladi. Maqsad — rasmni shunchaki ko'rish emas, balki undan aniq trading qarori chiqarish.`
+                : `AI разбирает этот фрагмент страницы как наставник: показывает контекст, триггер и подтверждение входа в единой логике. Цель — не просто посмотреть картинку, а извлечь из нее конкретное торговое решение.`,
             '',
-            280
+            1800
         ),
+        what_to_notice: sanitizeSummary(keyPointTwo, '', 420),
         visual_hint: hasVisualHints
-            ? sanitizeSummary(pageHintText || (language === 'UZ' ? 'Diagram/chizma fragmenti' : 'Фрагмент с диаграммой/схемой'), '', 260)
-            : (language === 'UZ' ? 'Vizual signal topilmadi, sahifa konteksti ko‘rsatiladi.' : 'Визуальный сигнал не найден, показан контекст страницы.'),
-        page_from: pageWindow.page_from,
-        page_to: pageWindow.page_to,
+            ? sanitizeSummary(visualOne.excerpt || '', language === 'UZ' ? 'Sahifadagi vizual triggerni belgilang.' : 'Отметьте визуальный триггер на странице.', 360)
+            : (language === 'UZ' ? "Vizual marker aniq emas, sahifa konteksti bo'yicha tahlil qiling." : 'Явный визуальный маркер не найден, анализируйте общий контекст страницы.'),
+        page_from: Math.max(1, Number(visualOne.page) || pageWindow.page_from),
+        page_to: Math.max(1, Number(visualOne.page) || pageWindow.page_from),
+    };
+
+    const visualStepTwo: LessonStepBlock = {
+        step_id: 'step_3_visual_b',
+        step_type: 'visual',
+        title: language === 'UZ' ? 'Step 3: Keyingi fragment B + AI tahlil' : 'Step 3: Следующий фрагмент B + AI разбор',
+        source_excerpt: sanitizeSummary(visualTwo.excerpt || content, '', 480),
+        explanation: sanitizeSummary(
+            language === 'UZ'
+                ? `Ikkinchi fragment birinchi qadamni to'ldiradi: AI setupning davomiyligini, xavf zonasi va ehtimoliy xatoni ajratib ko'rsatadi. Shu bilan siz bir martalik signal emas, balki to'liq scenariy fikrlashni o'rganasiz.`
+                : `Второй фрагмент дополняет предыдущий: AI показывает развитие сетапа, зону риска и потенциальную ошибку. Это формирует не реакцию на один сигнал, а полноценное сценарное мышление трейдера.`,
+            '',
+            1800
+        ),
+        what_to_notice: sanitizeSummary(
+            language === 'UZ' ? "Fragment A va B o'rtasidagi mantiqiy o'tishni solishtiring." : 'Сравните логический переход между фрагментом A и B.',
+            '',
+            420
+        ),
+        visual_hint: sanitizeSummary(visualTwo.excerpt || '', '', 360),
+        page_from: Math.max(1, Number(visualTwo.page) || pageWindow.page_from),
+        page_to: Math.max(1, Number(visualTwo.page) || pageWindow.page_from),
     };
 
     const conceptStep: LessonStepBlock = {
-        step_id: 'step_concept',
+        step_id: 'step_4_concepts',
         step_type: 'concept',
-        title: conceptTitle,
-        source_excerpt: sanitizeSummary(content, summary, 380),
-        explanation: sanitizeSummary(conceptExplain, '', 1100),
-        what_to_notice: sanitizeSummary(keyPoints.slice(0, 3).join(' | '), '', 320),
+        title: language === 'UZ' ? 'Step 4: Asosiy tushunchalar' : 'Step 4: Ключевые концепции',
+        source_excerpt: sanitizeSummary(content, summary, 520),
+        explanation: sanitizeSummary(
+            language === 'UZ'
+                ? `Bu bosqichda darsdagi terminlar va muhim qoidalar tizimlashtiriladi. Har bir tushuncha alohida emas, balki umumiy bozor strukturasi ichida qanday ishlashi bilan izohlanadi.`
+                : 'На этом шаге ключевые термины и правила собираются в цельную систему. Каждое понятие объясняется не изолированно, а через роль в общей структуре рынка и принятии решения.',
+            '',
+            1800
+        ),
+        what_to_notice: sanitizeSummary(keyPoints.slice(0, 4).join(' | '), '', 460),
         visual_hint: '',
         page_from: pageWindow.page_from,
         page_to: pageWindow.page_to,
     };
 
     const practiceStep: LessonStepBlock = {
-        step_id: 'step_practice',
+        step_id: 'step_5_practice',
         step_type: 'practice',
-        title: practiceTitle,
-        source_excerpt: sanitizeSummary(practice, '', 420),
-        explanation: sanitizeSummary(practiceExplain, '', 1100),
-        what_to_notice: sanitizeSummary(
-            language === 'UZ' ? 'Kirish-stop-target rejasini savdodan oldin yozing.' : 'Фиксируйте план входа-стопа-цели до сделки.',
+        title: language === 'UZ' ? "Step 5: Tradingda amaliy qo'llash" : 'Step 5: Практическая интерпретация в трейдинге',
+        source_excerpt: sanitizeSummary(practice, '', 520),
+        explanation: sanitizeSummary(
+            language === 'UZ'
+                ? `Nazariyani chart executionga o'tkazish uchun amaliy ketma-ketlik beriladi: kirish sharti, invalidation, stop va target mantiqi. Bu qadam darsni real savdo rejasi darajasiga olib chiqadi.`
+                : 'Шаг переводит теорию в конкретный execution-план: условия входа, invalidation-сценарий, логика стопа и цели. В результате материал превращается в рабочий план сделки, а не остается абстрактной теорией.',
             '',
-            280
+            1800
         ),
+        what_to_notice: sanitizeSummary(
+            language === 'UZ' ? "Kirish-stop-target yozuvini bitimdan oldin yakunlang." : 'Зафиксируйте вход-стоп-цель до открытия позиции.',
+            '',
+            420
+        ),
+        visual_hint: '',
+        page_from: pageWindow.page_from,
+        page_to: pageWindow.page_to,
+    };
+
+    const mistakesStep: LessonStepBlock = {
+        step_id: 'step_6_mistakes',
+        step_type: 'mistakes',
+        title: language === 'UZ' ? "Step 6: Yangi boshlovchi xatolari" : 'Step 6: Частые ошибки новичка',
+        source_excerpt: sanitizeSummary(commonMistakes.join(' | '), summary, 520),
+        explanation: sanitizeSummary(
+            language === 'UZ'
+                ? `Bu bosqichda AI eng xavfli chalkashliklarni ajratib beradi: noto'g'ri signal talqini, kontekstsiz kirish va risk intizomi buzilishi. Har bir xatoga qarshi amaliy oldini olish qoidasi beriladi.`
+                : 'Здесь AI выделяет самые дорогие ошибки новичка: неверная интерпретация сигнала, вход без контекста и нарушение risk-дисциплины. Для каждой ошибки дается практичное правило предотвращения.',
+            '',
+            1800
+        ),
+        what_to_notice: sanitizeSummary(mistakeOne, '', 420),
         visual_hint: '',
         page_from: pageWindow.page_from,
         page_to: pageWindow.page_to,
     };
 
     const takeawayStep: LessonStepBlock = {
-        step_id: 'step_takeaway',
+        step_id: 'step_7_summary',
         step_type: 'takeaway',
-        title: takeawayTitle,
-        source_excerpt: sanitizeSummary(remember, summary, 420),
-        explanation: sanitizeSummary(takeawayExplain, '', 1100),
-        what_to_notice: sanitizeSummary(
-            keyPoints.slice(0, 2).join(' | ') || (language === 'UZ' ? 'Asosiy signalni kontekstsiz talqin qilmang.' : 'Не интерпретируйте сигнал вне контекста.'),
+        title: language === 'UZ' ? "Step 7: Yakun - nimani eslab qolish kerak" : 'Step 7: Итог — что важно запомнить',
+        source_excerpt: sanitizeSummary(remember, summary, 520),
+        explanation: sanitizeSummary(
+            language === 'UZ'
+                ? `Ushbu yakuniy blok darsning eng muhim qoidalarini qisqa checklistga aylantiradi. Maqsad — keyingi safar chart ochilganda aynan shu qoidalar bo'yicha qaror qabul qilish.`
+                : 'Итоговый блок сводит урок к компактному checklist. Задача — чтобы при следующем открытии графика решение принималось по этим правилам, а не по эмоции.',
             '',
-            280
+            1800
         ),
+        what_to_notice: sanitizeSummary(keyPoints.slice(0, 3).join(' | '), '', 420),
         visual_hint: '',
         page_from: pageWindow.page_from,
         page_to: pageWindow.page_to,
     };
 
     const quizStep: LessonStepBlock = {
-        step_id: 'step_quiz',
+        step_id: 'step_8_quiz',
         step_type: 'quiz',
-        title: quizTitle,
-        source_excerpt: sanitizeSummary(summary, '', 320),
-        explanation: sanitizeSummary(quizExplain, '', 1100),
-        what_to_notice: sanitizeSummary(
-            language === 'UZ' ? 'Har savolga javob berishda darsdagi setup mantiqiga qayting.' : 'Отвечая, опирайтесь на логику сетапов из урока.',
+        title: language === 'UZ' ? 'Step 8: Mini test' : 'Step 8: Мини-тест',
+        source_excerpt: sanitizeSummary(summary, '', 420),
+        explanation: sanitizeSummary(
+            language === 'UZ'
+                ? `${quiz.length} ta savol aynan shu dars mazmunini tekshiradi. Har javobda setup mantiqi, risk va xatolar blokiga qaytib fikrlang.`
+                : `${quiz.length} вопросов проверяют понимание именно этого урока. Отвечайте, опираясь на логику сетапа, риск-план и блок ошибок из текущего материала.`,
             '',
-            280
+            1800
+        ),
+        what_to_notice: sanitizeSummary(
+            language === 'UZ' ? "Savollarda umumiy nazariya emas, ushbu darsning signal mantiqini qo'llang." : 'В вопросах используйте логику текущего урока, а не общие знания.',
+            '',
+            420
         ),
         visual_hint: '',
         page_from: pageWindow.page_from,
         page_to: pageWindow.page_to,
     };
 
-    return [introStep, visualStep, conceptStep, practiceStep, takeawayStep, quizStep];
+    const nextStep: LessonStepBlock = {
+        step_id: 'step_9_next',
+        step_type: 'next',
+        title: language === 'UZ' ? "Step 9: Keyingi darsga o'tish" : 'Step 9: Переход к следующему уроку',
+        source_excerpt: sanitizeSummary(summary, '', 360),
+        explanation: sanitizeSummary(
+            language === 'UZ'
+                ? "Darsni yakunlang, mini-test natijasini baholang va keyingi lessonga o'ting. Ketma-ket o'qish bilimni mustahkamlaydi va chartda qaror qabul qilish tezligini oshiradi."
+                : 'Завершите урок, оцените мини-тест и переходите к следующему lesson. Последовательное прохождение закрепляет материал и ускоряет принятие решений на графике.',
+            '',
+            1500
+        ),
+        what_to_notice: sanitizeSummary(
+            language === 'UZ' ? "Avval mark complete, keyin next lesson." : 'Сначала отметьте урок завершенным, затем переходите дальше.',
+            '',
+            360
+        ),
+        visual_hint: '',
+        page_from: pageWindow.page_to,
+        page_to: pageWindow.page_to,
+    };
+
+    return [
+        introStep,
+        visualStepOne,
+        visualStepTwo,
+        conceptStep,
+        practiceStep,
+        mistakesStep,
+        takeawayStep,
+        quizStep,
+        nextStep,
+    ];
 }
 
-function buildVisualBlocks(stepsRu: LessonStepBlock[], stepsUz: LessonStepBlock[]): VisualBlockItem[] {
+function buildVisualBlocks(
+    stepsRu: LessonStepBlock[],
+    stepsUz: LessonStepBlock[],
+    visualCandidates: PdfPageFragment[]
+): VisualBlockItem[] {
     const uzById = new Map<string, LessonStepBlock>();
     for (const step of stepsUz) uzById.set(step.step_id, step);
 
-    return stepsRu
-        .filter((step) => step.step_type === 'visual' || step.visual_hint || step.page_from > 0)
+    const candidateByPage = new Map<number, PdfPageFragment>();
+    for (const item of visualCandidates || []) {
+        candidateByPage.set(Math.max(1, Number(item.page) || 1), item);
+    }
+
+    const blocks: VisualBlockItem[] = stepsRu
+        .filter((step) => step.step_type === 'visual' || step.visual_hint)
         .slice(0, 8)
         .map((step) => {
             const uz = uzById.get(step.step_id);
-            const kind: VisualBlockItem['visual_kind'] = step.page_from > 0 ? 'page_fragment' : 'none';
+            const pageFrom = Math.max(1, Number(step.page_from) || 1);
+            const pageTo = Math.max(pageFrom, Number(step.page_to) || pageFrom);
+            const fragment = candidateByPage.get(pageFrom) || visualCandidates.find((item) => item.page >= pageFrom && item.page <= pageTo);
+
+            const importanceRu = sanitizeSummary(
+                step.what_to_notice || step.visual_hint || '',
+                'Смотрите на контекст, точку подтверждения и реакцию цены.',
+                320
+            );
+            const importanceUz = sanitizeSummary(
+                uz?.what_to_notice || uz?.visual_hint || '',
+                "Kontekst, tasdiq nuqtasi va narx reaksiyasiga e'tibor bering.",
+                320
+            );
+
             return {
                 step_id: step.step_id,
-                page_from: Math.max(1, Number(step.page_from) || 1),
-                page_to: Math.max(Math.max(1, Number(step.page_from) || 1), Number(step.page_to) || Number(step.page_from) || 1),
-                visual_kind: kind,
+                page_from: pageFrom,
+                page_to: pageTo,
+                visual_kind: fragment?.has_visual_hints ? 'diagram' : 'page_fragment',
                 caption_ru: sanitizeSummary(step.title || 'Визуальный блок', 'Визуальный блок', 200),
-                caption_uz: sanitizeSummary(uz?.title || "Vizual blok", "Vizual blok", 200),
-                importance_ru: sanitizeSummary(step.what_to_notice || step.visual_hint || '', 'Смотрите на контекст и подтверждение сигнала.', 260),
-                importance_uz: sanitizeSummary(uz?.what_to_notice || uz?.visual_hint || '', "Kontekst va signal tasdig'iga e'tibor bering.", 260),
+                caption_uz: sanitizeSummary(uz?.title || 'Vizual blok', 'Vizual blok', 200),
+                importance_ru: importanceRu,
+                importance_uz: importanceUz,
+                page_excerpt: sanitizeSummary(fragment?.excerpt || '', '', 320),
+                focus_points_ru: splitFocusPoints(importanceRu, 3),
+                focus_points_uz: splitFocusPoints(importanceUz, 3),
             };
         });
+
+    if (blocks.length >= 2) return blocks;
+
+    const usedPages = new Set<number>(blocks.map((item) => item.page_from));
+    for (const fragment of visualCandidates) {
+        const page = Math.max(1, Number(fragment.page) || 1);
+        if (usedPages.has(page)) continue;
+        usedPages.add(page);
+
+        const importanceRu = 'Сфокусируйтесь на рыночном контексте, реакции цены и подтверждении сценария.';
+        const importanceUz = "Bozor konteksti, narx reaksiyasi va scenariy tasdig'ini kuzating.";
+
+        blocks.push({
+            step_id: `visual_page_${page}`,
+            page_from: page,
+            page_to: page,
+            visual_kind: fragment.has_visual_hints ? 'diagram' : 'page_fragment',
+            caption_ru: `Фрагмент страницы ${page}`,
+            caption_uz: `${page}-sahifa fragmenti`,
+            importance_ru: importanceRu,
+            importance_uz: importanceUz,
+            page_excerpt: sanitizeSummary(fragment.excerpt || '', '', 320),
+            focus_points_ru: splitFocusPoints(importanceRu, 3),
+            focus_points_uz: splitFocusPoints(importanceUz, 3),
+        });
+
+        if (blocks.length >= 3) break;
+    }
+
+    return blocks.slice(0, 8);
 }
 
 async function generateStructuredLessonContent(
@@ -1146,11 +1340,15 @@ async function generateStructuredLessonContent(
     hasVisualHints: boolean,
     log?: FastifyBaseLogger
 ): Promise<StructuredLessonContent> {
-    const sourceSnippet = lesson.sourceText.replace(/\s+/g, ' ').substring(0, 9000);
+    const sourceSnippet = lesson.sourceText.replace(/\s+/g, ' ').substring(0, 14000);
     const pageWindow = buildPageWindow(totalPages, index, lessonCount);
     const lessonPageFragments = pickPageFragments(pageFragments, pageWindow.page_from, pageWindow.page_to);
+    const visualCandidates = pickVisualCandidates(pageFragments, pageWindow.page_from, pageWindow.page_to);
     const pageHintText = lessonPageFragments
         .map((item) => `Page ${item.page}: ${item.excerpt}${item.has_visual_hints ? ' [visual hint]' : ''}`)
+        .join('\n');
+    const visualCandidateText = visualCandidates
+        .map((item) => `Page ${item.page} (${item.has_visual_hints ? 'visual' : 'text'}): ${item.excerpt}`)
         .join('\n');
 
     const prompt = `You are a professional trading education editor.
@@ -1165,6 +1363,8 @@ Lesson index: ${index + 1}
 Estimated source pages for this lesson: ${pageWindow.page_from}-${pageWindow.page_to}
 Page hints:
 ${pageHintText || 'No reliable page hints extracted'}
+Best visual candidates:
+${visualCandidateText || 'No explicit visual candidates extracted'}
 Visual hints detected in PDF: ${hasVisualHints ? 'yes' : 'no'}
 
 Source content:
@@ -1194,8 +1394,8 @@ Return ONLY valid JSON with this shape:
   "homework_uz": "homework in Uzbek",
   "quiz_ru": [{"question":"...", "options":["..."], "correct_index":0, "explanation":"..."}],
   "quiz_uz": [{"question":"...", "options":["..."], "correct_index":0, "explanation":"..."}],
-  "lesson_steps_ru": [{"step_id":"step_intro","step_type":"intro|visual|concept|practice|takeaway|quiz","title":"...","source_excerpt":"...","explanation":"...","what_to_notice":"...","visual_hint":"...","page_from":1,"page_to":2}],
-  "lesson_steps_uz": [{"step_id":"step_intro","step_type":"intro|visual|concept|practice|takeaway|quiz","title":"...","source_excerpt":"...","explanation":"...","what_to_notice":"...","visual_hint":"...","page_from":1,"page_to":2}],
+  "lesson_steps_ru": [{"step_id":"step_intro","step_type":"intro|visual|concept|practice|mistakes|takeaway|quiz|next","title":"...","source_excerpt":"...","explanation":"...","what_to_notice":"...","visual_hint":"...","page_from":1,"page_to":2}],
+  "lesson_steps_uz": [{"step_id":"step_intro","step_type":"intro|visual|concept|practice|mistakes|takeaway|quiz|next","title":"...","source_excerpt":"...","explanation":"...","what_to_notice":"...","visual_hint":"...","page_from":1,"page_to":2}],
   "conclusion_ru": "lesson conclusion in Russian",
   "conclusion_uz": "lesson conclusion in Uzbek",
   "additional_ru": "optional useful clarifications in Russian",
@@ -1205,7 +1405,7 @@ Return ONLY valid JSON with this shape:
 Rules:
 - Keep original trading terms and definitions accurate.
 - Do NOT invent facts that are absent in source.
-- Make explanation pedagogical and clear.
+- Make explanations pedagogical, detailed, mentor-like, and practical.
 - Keep RU and UZ high quality and natural.
 - Include practical application on chart where relevant.
 - Include what to remember and what beginners should not confuse in mistakes/check/questions.
@@ -1213,8 +1413,20 @@ Rules:
 - Fill glossary with at least 3 terms.
 - Fill self-check with at least 3 questions.
 - Fill quiz with 3-7 questions.
-- lesson_steps_ru and lesson_steps_uz must have at least 6 steps.
-- Include at least one "visual" step with page_from/page_to and visual_hint.`;
+- content_ru and content_uz should be deep enough to teach the full lesson, not a short note.
+- lesson_steps_ru and lesson_steps_uz must each have 9 steps and follow this order:
+  1) intro
+  2) visual (fragment A)
+  3) visual (fragment B)
+  4) concept
+  5) practice
+  6) mistakes
+  7) takeaway
+  8) quiz
+  9) next
+- For both visual steps: include page_from/page_to and visual_hint linked to page candidates when possible.
+- If explicit images are missing, still produce page-fragment visual steps using available page context.
+- step explanations should be detailed (3-6 meaningful sentences), not one-liners.`;
 
     const models = [
         'meta-llama/llama-3.3-70b-instruct',
@@ -1255,9 +1467,9 @@ Rules:
             const summaryRu = sanitizeSummary(parsed?.summary_ru, lesson.summary || classification.summary, 1200);
             const summaryUz = sanitizeSummary(parsed?.summary_uz, summaryRu, 1200);
 
-            const contentSource = sanitizeSummary(parsed?.content_source, lesson.sourceText || lesson.summary || classification.summary, 12000);
-            const contentRu = sanitizeSummary(parsed?.content_ru, summaryRu, 15000);
-            const contentUz = sanitizeSummary(parsed?.content_uz, summaryUz, 15000);
+            const contentSource = sanitizeSummary(parsed?.content_source, lesson.sourceText || lesson.summary || classification.summary, 15000);
+            const contentRu = sanitizeSummary(parsed?.content_ru, summaryRu, 18000);
+            const contentUz = sanitizeSummary(parsed?.content_uz, summaryUz, 18000);
 
             const keyPointsRuRaw = normalizeStringArray(parsed?.key_points_ru, 15);
             const keyPointsUzRaw = normalizeStringArray(parsed?.key_points_uz, 15);
@@ -1316,7 +1528,7 @@ Rules:
             const lessonStepsRuRaw = normalizeLessonSteps(parsed?.lesson_steps_ru, 'RU', pageWindow.page_from, pageWindow.page_to);
             const lessonStepsUzRaw = normalizeLessonSteps(parsed?.lesson_steps_uz, 'UZ', pageWindow.page_from, pageWindow.page_to);
 
-            const lessonStepsRu = lessonStepsRuRaw.length >= 6
+            const lessonStepsRu = hasStrongJourneyFlow(lessonStepsRuRaw)
                 ? lessonStepsRuRaw
                 : buildFallbackLessonSteps(
                     'RU',
@@ -1325,14 +1537,15 @@ Rules:
                     contentRu,
                     keyPointsRu,
                     practiceRu,
+                    commonMistakesRu,
                     rememberRu,
                     quizRu,
                     pageWindow,
-                    lessonPageFragments,
+                    visualCandidates,
                     hasVisualHints
                 );
 
-            const lessonStepsUz = lessonStepsUzRaw.length >= 6
+            const lessonStepsUz = hasStrongJourneyFlow(lessonStepsUzRaw)
                 ? lessonStepsUzRaw
                 : buildFallbackLessonSteps(
                     'UZ',
@@ -1341,14 +1554,15 @@ Rules:
                     contentUz,
                     keyPointsUz,
                     practiceUz,
+                    commonMistakesUz,
                     rememberUz,
                     quizUz,
                     pageWindow,
-                    lessonPageFragments,
+                    visualCandidates,
                     hasVisualHints
                 );
 
-            const visualBlocks = buildVisualBlocks(lessonStepsRu, lessonStepsUz);
+            const visualBlocks = buildVisualBlocks(lessonStepsRu, lessonStepsUz, visualCandidates);
 
             return {
                 lesson_type,
@@ -1814,6 +2028,9 @@ export async function ingestPdf(
                     has_visual_hints: hasVisualHints,
                     step_blocks_per_lesson: enrichedLessonPlan.lessons.map((l) => l.structured.lesson_steps_ru.length),
                     visual_blocks_per_lesson: enrichedLessonPlan.lessons.map((l) => l.structured.visual_blocks.length),
+                    visual_pages_per_lesson: enrichedLessonPlan.lessons.map((l) =>
+                        (l.structured.visual_blocks || []).map((v) => `${v.page_from}-${v.page_to}`)
+                    ),
                 }),
                 course_id,
                 lesson_id,
@@ -1919,10 +2136,28 @@ export async function scanLibrary(log?: FastifyBaseLogger): Promise<{
 
                         const lessonRow = lessonContentRes.rows[0];
                         const hasMultilingualContent = !!lessonRow?.content_ru && !!lessonRow?.content_uz;
-                        const hasStepBlocks = !!lessonRow?.lesson_steps_json;
-                        const hasLessonTest = !!lessonRow?.lesson_test_json;
 
-                        if (hasMultilingualContent && hasStepBlocks && hasLessonTest) {
+                        const pickLocalizedArray = (raw: any, lang: 'RU' | 'UZ'): any[] => {
+                            if (!raw || typeof raw !== 'object') return [];
+                            const value = raw[lang] ?? raw[lang.toLowerCase()] ??
+                                raw[lang === 'RU' ? 'UZ' : 'RU'] ?? raw[lang === 'RU' ? 'uz' : 'ru'];
+                            return Array.isArray(value) ? value : [];
+                        };
+
+                        const stepsRuCount = pickLocalizedArray(lessonRow?.lesson_steps_json, 'RU').length;
+                        const stepsUzCount = pickLocalizedArray(lessonRow?.lesson_steps_json, 'UZ').length;
+                        const hasStepBlocks = stepsRuCount >= 8 && stepsUzCount >= 8;
+
+                        const visualCount = Array.isArray(lessonRow?.visual_blocks_json)
+                            ? lessonRow.visual_blocks_json.length
+                            : 0;
+                        const hasVisualBlocks = visualCount >= 2;
+
+                        const lessonTestRuCount = pickLocalizedArray(lessonRow?.lesson_test_json, 'RU').length;
+                        const lessonTestUzCount = pickLocalizedArray(lessonRow?.lesson_test_json, 'UZ').length;
+                        const hasLessonTest = lessonTestRuCount >= 3 && lessonTestUzCount >= 3;
+
+                        if (hasMultilingualContent && hasStepBlocks && hasVisualBlocks && hasLessonTest) {
                             if (log) log.info(`[scanLibrary] Skipping (already processed): ${file}`);
                             skipped++;
                             continue;
