@@ -490,6 +490,16 @@ export default function AdminCourses() {
                                                                                 Module: <strong className="text-white">{String(meta.module_title)}</strong>
                                                                             </p>
                                                                         )}
+                                                                        {Array.isArray(meta?.step_blocks_per_lesson) && (
+                                                                            <p className="text-[11px] mt-1" style={{ color: '#9AB1D2' }}>
+                                                                                Steps/lesson: <strong className="text-white">{meta.step_blocks_per_lesson.join(', ')}</strong>
+                                                                            </p>
+                                                                        )}
+                                                                        {Array.isArray(meta?.visual_blocks_per_lesson) && (
+                                                                            <p className="text-[11px] mt-1" style={{ color: '#9AB1D2' }}>
+                                                                                Visual/lesson: <strong className="text-white">{meta.visual_blocks_per_lesson.join(', ')}</strong>
+                                                                            </p>
+                                                                        )}
                                                                         {lessonTitles.length > 0 && (
                                                                             <p className="text-[11px] mt-1 line-clamp-2" style={{ color: '#9AB1D2' }}>
                                                                                 Generated lessons: {lessonTitles.join(' · ')}

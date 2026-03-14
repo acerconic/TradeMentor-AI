@@ -108,6 +108,9 @@ export default async function aiRoutes(server: FastifyInstance) {
                                     l.common_mistakes_json,
                                     l.self_check_questions_json,
                                     l.homework_json,
+                                    l.lesson_steps_json,
+                                    l.visual_blocks_json,
+                                    l.lesson_test_json,
                                     l.lesson_type,
                                     l.source_section,
                                     l.source_language,
@@ -163,6 +166,25 @@ export default async function aiRoutes(server: FastifyInstance) {
 
                             const homeworkText = String(pickLocalized(row.homework_json) || '').replace(/\s+/g, ' ').trim().substring(0, 800)
 
+                            const lessonStepsRaw = pickLocalized(row.lesson_steps_json)
+                            const lessonSteps = Array.isArray(lessonStepsRaw)
+                                ? lessonStepsRaw
+                                    .slice(0, 4)
+                                    .map((step: any) => `${step.title || ''}: ${String(step.explanation || '').replace(/\s+/g, ' ').substring(0, 220)}`)
+                                    .join(' | ')
+                                : ''
+
+                            const visualBlocksRaw = Array.isArray(row.visual_blocks_json) ? row.visual_blocks_json : []
+                            const visualBlocks = visualBlocksRaw
+                                .slice(0, 3)
+                                .map((block: any) => `step:${block.step_id || ''} pages:${block.page_from || 1}-${block.page_to || block.page_from || 1}`)
+                                .join(' | ')
+
+                            const lessonTestRaw = pickLocalized(row.lesson_test_json)
+                            const lessonTestInfo = Array.isArray(lessonTestRaw)
+                                ? `questions:${lessonTestRaw.length}`
+                                : ''
+
                             const contentSnippet = String(localizedContent || '').replace(/\s+/g, ' ').substring(0, 1800)
                             lessonContextText = `
 Current lesson context:
@@ -181,6 +203,9 @@ Current lesson context:
 - Common mistakes: ${mistakes}
 - Self-check questions: ${selfCheck}
 - Homework: ${homeworkText}
+- Lesson steps: ${lessonSteps}
+- Visual blocks: ${visualBlocks}
+- Lesson test: ${lessonTestInfo}
 - Lesson content snippet: ${contentSnippet}`
                         }
                     } catch (e: any) {

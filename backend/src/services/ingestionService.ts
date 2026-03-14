@@ -30,6 +30,15 @@ interface AIClassification {
 interface ExtractedPdfText {
     fullText: string;
     aiText: string;
+    totalPages: number;
+    pageFragments: PdfPageFragment[];
+    hasVisualHints: boolean;
+}
+
+interface PdfPageFragment {
+    page: number;
+    excerpt: string;
+    has_visual_hints: boolean;
 }
 
 interface LessonPlanItem {
@@ -43,6 +52,29 @@ interface QuizItem {
     options: string[];
     correct_index: number;
     explanation: string;
+}
+
+interface LessonStepBlock {
+    step_id: string;
+    step_type: 'intro' | 'visual' | 'concept' | 'practice' | 'takeaway' | 'quiz';
+    title: string;
+    source_excerpt: string;
+    explanation: string;
+    what_to_notice: string;
+    visual_hint: string;
+    page_from: number;
+    page_to: number;
+}
+
+interface VisualBlockItem {
+    step_id: string;
+    page_from: number;
+    page_to: number;
+    visual_kind: 'page_fragment' | 'diagram' | 'image' | 'none';
+    caption_ru: string;
+    caption_uz: string;
+    importance_ru: string;
+    importance_uz: string;
 }
 
 interface StructuredLessonContent {
@@ -68,6 +100,9 @@ interface StructuredLessonContent {
     homework_uz: string;
     quiz_ru: QuizItem[];
     quiz_uz: QuizItem[];
+    lesson_steps_ru: LessonStepBlock[];
+    lesson_steps_uz: LessonStepBlock[];
+    visual_blocks: VisualBlockItem[];
     conclusion_ru: string;
     conclusion_uz: string;
     additional_ru: string;
@@ -199,6 +234,45 @@ async function extractPdfText(filePath: string): Promise<ExtractedPdfText> {
         .replace(/\r/g, '\n')
         .replace(/\t/g, ' ');
 
+    const totalPages = Math.max(1, Number(data?.numpages || 1));
+
+    const visualHintRegex = /(figure|fig\.|chart|diagram|image|table|illustration|рис\.|рисунок|схема|график|таблица|иллюстрац|jadval|rasm|diagramma|chizma)/i;
+
+    const pageFromFormFeed = raw
+        .split('\f')
+        .map((chunk) => chunk.trim())
+        .filter(Boolean);
+
+    const compactForPaging = raw.replace(/\n{3,}/g, '\n\n').trim();
+    const pageFragments: PdfPageFragment[] = [];
+
+    if (pageFromFormFeed.length >= 2) {
+        for (let i = 0; i < pageFromFormFeed.length; i++) {
+            const excerpt = pageFromFormFeed[i].replace(/\s+/g, ' ').trim().substring(0, 340);
+            if (!excerpt) continue;
+            pageFragments.push({
+                page: i + 1,
+                excerpt,
+                has_visual_hints: visualHintRegex.test(pageFromFormFeed[i]),
+            });
+        }
+    } else {
+        const chunkSize = Math.max(1200, Math.ceil(Math.max(compactForPaging.length, 1) / totalPages));
+        let page = 1;
+        for (let i = 0; i < compactForPaging.length; i += chunkSize) {
+            const chunk = compactForPaging.substring(i, i + chunkSize);
+            const excerpt = chunk.replace(/\s+/g, ' ').trim().substring(0, 340);
+            if (!excerpt) continue;
+            pageFragments.push({
+                page,
+                excerpt,
+                has_visual_hints: visualHintRegex.test(chunk),
+            });
+            page += 1;
+            if (page > totalPages) break;
+        }
+    }
+
     const fullText = raw
         .replace(/\n{3,}/g, '\n\n')
         .split('\n')
@@ -213,7 +287,9 @@ async function extractPdfText(filePath: string): Promise<ExtractedPdfText> {
         .trim()
         .substring(0, 6000);
 
-    return { fullText, aiText };
+    const hasVisualHints = pageFragments.some((fragment) => fragment.has_visual_hints);
+
+    return { fullText, aiText, totalPages, pageFragments, hasVisualHints };
 }
 
 // ── AI Classification ────────────────────────────────────────
@@ -811,15 +887,271 @@ function ensureMinQuiz(items: QuizItem[], min: number, fallbackItems: QuizItem[]
     return combined.slice(0, 6);
 }
 
+function buildPageWindow(totalPages: number, lessonIndex: number, totalLessons: number): { page_from: number; page_to: number } {
+    const pages = Math.max(1, totalPages || 1);
+    const lessons = Math.max(1, totalLessons || 1);
+    const idx = Math.max(0, lessonIndex || 0);
+
+    if (pages === 1 || lessons === 1) {
+        return { page_from: 1, page_to: pages };
+    }
+
+    const start = Math.min(pages, Math.max(1, Math.floor((idx / lessons) * pages) + 1));
+    const end = Math.min(pages, Math.max(start, Math.floor(((idx + 1) / lessons) * pages)));
+    return { page_from: start, page_to: end };
+}
+
+function pickPageFragments(pageFragments: PdfPageFragment[], pageFrom: number, pageTo: number): PdfPageFragment[] {
+    const relevant = (pageFragments || [])
+        .filter((item) => item.page >= pageFrom && item.page <= pageTo)
+        .slice(0, 4);
+
+    if (relevant.length > 0) return relevant;
+    return (pageFragments || []).slice(0, 2);
+}
+
+function normalizeStepType(value: any): LessonStepBlock['step_type'] {
+    const raw = String(value || '').toLowerCase();
+    if (raw === 'visual') return 'visual';
+    if (raw === 'concept') return 'concept';
+    if (raw === 'practice') return 'practice';
+    if (raw === 'takeaway') return 'takeaway';
+    if (raw === 'quiz') return 'quiz';
+    return 'intro';
+}
+
+function normalizeLessonSteps(
+    raw: any,
+    defaultLanguage: 'RU' | 'UZ',
+    fallbackPageFrom: number,
+    fallbackPageTo: number
+): LessonStepBlock[] {
+    if (!Array.isArray(raw)) return [];
+
+    const seen = new Set<string>();
+
+    return raw
+        .map((item: any, index: number) => {
+            const step_id_base = sanitizeTitle(String(item?.step_id || item?.id || `step_${index + 1}`), `step_${index + 1}`, 32)
+                .toLowerCase()
+                .replace(/[^a-z0-9_\-]/g, '_');
+
+            let step_id = step_id_base || `step_${index + 1}`;
+            let suffix = 2;
+            while (seen.has(step_id)) {
+                step_id = `${step_id_base}_${suffix}`;
+                suffix += 1;
+            }
+            seen.add(step_id);
+
+            const page_from_raw = Number(item?.page_from);
+            const page_to_raw = Number(item?.page_to);
+            const page_from = Number.isInteger(page_from_raw) ? Math.max(1, page_from_raw) : fallbackPageFrom;
+            const page_to = Number.isInteger(page_to_raw) ? Math.max(page_from, page_to_raw) : Math.max(page_from, fallbackPageTo);
+
+            const titleFallback = defaultLanguage === 'UZ' ? `Qadam ${index + 1}` : `Шаг ${index + 1}`;
+            const explanationFallback = defaultLanguage === 'UZ'
+                ? 'Ushbu qadam bozor mantiqini amalda ko‘rsatadi.'
+                : 'Этот шаг помогает применить рыночную логику на практике.';
+
+            return {
+                step_id,
+                step_type: normalizeStepType(item?.step_type),
+                title: sanitizeSummary(String(item?.title || ''), titleFallback, 180),
+                source_excerpt: sanitizeSummary(String(item?.source_excerpt || ''), '', 420),
+                explanation: sanitizeSummary(String(item?.explanation || ''), explanationFallback, 1200),
+                what_to_notice: sanitizeSummary(String(item?.what_to_notice || ''), '', 420),
+                visual_hint: sanitizeSummary(String(item?.visual_hint || ''), '', 280),
+                page_from,
+                page_to,
+            } as LessonStepBlock;
+        })
+        .filter((item: LessonStepBlock) => item.title && item.explanation)
+        .slice(0, 12);
+}
+
+function buildFallbackLessonSteps(
+    language: 'RU' | 'UZ',
+    lessonTitle: string,
+    summary: string,
+    content: string,
+    keyPoints: string[],
+    practice: string,
+    remember: string,
+    quiz: QuizItem[],
+    pageWindow: { page_from: number; page_to: number },
+    fragments: PdfPageFragment[],
+    hasVisualHints: boolean
+): LessonStepBlock[] {
+    const pageHintText = fragments
+        .map((item) => `p.${item.page}: ${sanitizeSummary(item.excerpt, '', 160)}`)
+        .join(' | ');
+
+    const introTitle = language === 'UZ' ? 'Kirish va lesson maqsadi' : 'Введение и цель урока';
+    const visualTitle = language === 'UZ' ? 'Kitobdan vizual fragment' : 'Визуальный фрагмент из книги';
+    const conceptTitle = language === 'UZ' ? 'Asosiy tushunchalar' : 'Ключевые концепции';
+    const practiceTitle = language === 'UZ' ? 'Amaliy qo‘llash' : 'Практическое применение';
+    const takeawayTitle = language === 'UZ' ? 'Nimani eslab qolish kerak' : 'Что важно запомнить';
+    const quizTitle = language === 'UZ' ? 'Mini testga tayyorgarlik' : 'Подготовка к мини-тесту';
+
+    const introExplain = language === 'UZ'
+        ? `Bu dars ${lessonTitle} bo‘yicha asosiy mantiqni bosqichma-bosqich ochib beradi.`
+        : `Этот урок по теме "${lessonTitle}" раскрывает рыночную логику по шагам.`;
+
+    const visualExplain = language === 'UZ'
+        ? 'Quyidagi sahifa fragmentida setup konteksti va muhim signalni ko‘rib chiqing.'
+        : 'Визуальный блок показывает контекст сетапа и сигнал, который нужно подтвердить.';
+
+    const conceptExplain = language === 'UZ'
+        ? 'Ushbu qadamda terminlar va asosiy qoidalar bir tizimga yig‘iladi.'
+        : 'На этом шаге термины и ключевые правила объединяются в рабочую систему.';
+
+    const practiceExplain = language === 'UZ'
+        ? 'Nazariyani chartda qo‘llash uchun aniq execution ketma-ketligi beriladi.'
+        : 'Здесь показана последовательность execution, чтобы перенести теорию на график.';
+
+    const takeawayExplain = language === 'UZ'
+        ? 'Asosiy xulosa va xatolardan saqlanish bo‘yicha checklist.'
+        : 'Итог урока и checklist, который помогает избегать повторяющихся ошибок.';
+
+    const quizExplain = language === 'UZ'
+        ? `Yakunda ${quiz.length} ta savol orqali tushuncha mustahkamlanadi.`
+        : `В конце ${quiz.length} вопросов проверяют понимание именно этого урока.`;
+
+    const introStep: LessonStepBlock = {
+        step_id: 'step_intro',
+        step_type: 'intro',
+        title: introTitle,
+        source_excerpt: sanitizeSummary(summary, '', 340),
+        explanation: sanitizeSummary(introExplain, '', 1100),
+        what_to_notice: sanitizeSummary(keyPoints[0] || '', '', 280),
+        visual_hint: '',
+        page_from: pageWindow.page_from,
+        page_to: pageWindow.page_to,
+    };
+
+    const visualStep: LessonStepBlock = {
+        step_id: 'step_visual',
+        step_type: 'visual',
+        title: visualTitle,
+        source_excerpt: sanitizeSummary(pageHintText || summary, '', 380),
+        explanation: sanitizeSummary(visualExplain, '', 1100),
+        what_to_notice: sanitizeSummary(
+            keyPoints[1] || (language === 'UZ' ? 'Likvidlik va tasdiq signalini birga kuzating.' : 'Следите за связкой ликвидности и подтверждения.'),
+            '',
+            280
+        ),
+        visual_hint: hasVisualHints
+            ? sanitizeSummary(pageHintText || (language === 'UZ' ? 'Diagram/chizma fragmenti' : 'Фрагмент с диаграммой/схемой'), '', 260)
+            : (language === 'UZ' ? 'Vizual signal topilmadi, sahifa konteksti ko‘rsatiladi.' : 'Визуальный сигнал не найден, показан контекст страницы.'),
+        page_from: pageWindow.page_from,
+        page_to: pageWindow.page_to,
+    };
+
+    const conceptStep: LessonStepBlock = {
+        step_id: 'step_concept',
+        step_type: 'concept',
+        title: conceptTitle,
+        source_excerpt: sanitizeSummary(content, summary, 380),
+        explanation: sanitizeSummary(conceptExplain, '', 1100),
+        what_to_notice: sanitizeSummary(keyPoints.slice(0, 3).join(' | '), '', 320),
+        visual_hint: '',
+        page_from: pageWindow.page_from,
+        page_to: pageWindow.page_to,
+    };
+
+    const practiceStep: LessonStepBlock = {
+        step_id: 'step_practice',
+        step_type: 'practice',
+        title: practiceTitle,
+        source_excerpt: sanitizeSummary(practice, '', 420),
+        explanation: sanitizeSummary(practiceExplain, '', 1100),
+        what_to_notice: sanitizeSummary(
+            language === 'UZ' ? 'Kirish-stop-target rejasini savdodan oldin yozing.' : 'Фиксируйте план входа-стопа-цели до сделки.',
+            '',
+            280
+        ),
+        visual_hint: '',
+        page_from: pageWindow.page_from,
+        page_to: pageWindow.page_to,
+    };
+
+    const takeawayStep: LessonStepBlock = {
+        step_id: 'step_takeaway',
+        step_type: 'takeaway',
+        title: takeawayTitle,
+        source_excerpt: sanitizeSummary(remember, summary, 420),
+        explanation: sanitizeSummary(takeawayExplain, '', 1100),
+        what_to_notice: sanitizeSummary(
+            keyPoints.slice(0, 2).join(' | ') || (language === 'UZ' ? 'Asosiy signalni kontekstsiz talqin qilmang.' : 'Не интерпретируйте сигнал вне контекста.'),
+            '',
+            280
+        ),
+        visual_hint: '',
+        page_from: pageWindow.page_from,
+        page_to: pageWindow.page_to,
+    };
+
+    const quizStep: LessonStepBlock = {
+        step_id: 'step_quiz',
+        step_type: 'quiz',
+        title: quizTitle,
+        source_excerpt: sanitizeSummary(summary, '', 320),
+        explanation: sanitizeSummary(quizExplain, '', 1100),
+        what_to_notice: sanitizeSummary(
+            language === 'UZ' ? 'Har savolga javob berishda darsdagi setup mantiqiga qayting.' : 'Отвечая, опирайтесь на логику сетапов из урока.',
+            '',
+            280
+        ),
+        visual_hint: '',
+        page_from: pageWindow.page_from,
+        page_to: pageWindow.page_to,
+    };
+
+    return [introStep, visualStep, conceptStep, practiceStep, takeawayStep, quizStep];
+}
+
+function buildVisualBlocks(stepsRu: LessonStepBlock[], stepsUz: LessonStepBlock[]): VisualBlockItem[] {
+    const uzById = new Map<string, LessonStepBlock>();
+    for (const step of stepsUz) uzById.set(step.step_id, step);
+
+    return stepsRu
+        .filter((step) => step.step_type === 'visual' || step.visual_hint || step.page_from > 0)
+        .slice(0, 8)
+        .map((step) => {
+            const uz = uzById.get(step.step_id);
+            const kind: VisualBlockItem['visual_kind'] = step.page_from > 0 ? 'page_fragment' : 'none';
+            return {
+                step_id: step.step_id,
+                page_from: Math.max(1, Number(step.page_from) || 1),
+                page_to: Math.max(Math.max(1, Number(step.page_from) || 1), Number(step.page_to) || Number(step.page_from) || 1),
+                visual_kind: kind,
+                caption_ru: sanitizeSummary(step.title || 'Визуальный блок', 'Визуальный блок', 200),
+                caption_uz: sanitizeSummary(uz?.title || "Vizual blok", "Vizual blok", 200),
+                importance_ru: sanitizeSummary(step.what_to_notice || step.visual_hint || '', 'Смотрите на контекст и подтверждение сигнала.', 260),
+                importance_uz: sanitizeSummary(uz?.what_to_notice || uz?.visual_hint || '', "Kontekst va signal tasdig'iga e'tibor bering.", 260),
+            };
+        });
+}
+
 async function generateStructuredLessonContent(
     lesson: LessonPlanItem,
     classification: AIClassification,
     sourceLanguage: string,
     originalFileName: string,
     index: number,
+    lessonCount: number,
+    pageFragments: PdfPageFragment[],
+    totalPages: number,
+    hasVisualHints: boolean,
     log?: FastifyBaseLogger
 ): Promise<StructuredLessonContent> {
     const sourceSnippet = lesson.sourceText.replace(/\s+/g, ' ').substring(0, 9000);
+    const pageWindow = buildPageWindow(totalPages, index, lessonCount);
+    const lessonPageFragments = pickPageFragments(pageFragments, pageWindow.page_from, pageWindow.page_to);
+    const pageHintText = lessonPageFragments
+        .map((item) => `Page ${item.page}: ${item.excerpt}${item.has_visual_hints ? ' [visual hint]' : ''}`)
+        .join('\n');
 
     const prompt = `You are a professional trading education editor.
 Goal: transform source material into a structured lesson while preserving author's terminology and meaning.
@@ -830,6 +1162,10 @@ Course: ${classification.course_title}
 Module: ${classification.module_title}
 Lesson title: ${lesson.title}
 Lesson index: ${index + 1}
+Estimated source pages for this lesson: ${pageWindow.page_from}-${pageWindow.page_to}
+Page hints:
+${pageHintText || 'No reliable page hints extracted'}
+Visual hints detected in PDF: ${hasVisualHints ? 'yes' : 'no'}
 
 Source content:
 ${sourceSnippet}
@@ -858,6 +1194,8 @@ Return ONLY valid JSON with this shape:
   "homework_uz": "homework in Uzbek",
   "quiz_ru": [{"question":"...", "options":["..."], "correct_index":0, "explanation":"..."}],
   "quiz_uz": [{"question":"...", "options":["..."], "correct_index":0, "explanation":"..."}],
+  "lesson_steps_ru": [{"step_id":"step_intro","step_type":"intro|visual|concept|practice|takeaway|quiz","title":"...","source_excerpt":"...","explanation":"...","what_to_notice":"...","visual_hint":"...","page_from":1,"page_to":2}],
+  "lesson_steps_uz": [{"step_id":"step_intro","step_type":"intro|visual|concept|practice|takeaway|quiz","title":"...","source_excerpt":"...","explanation":"...","what_to_notice":"...","visual_hint":"...","page_from":1,"page_to":2}],
   "conclusion_ru": "lesson conclusion in Russian",
   "conclusion_uz": "lesson conclusion in Uzbek",
   "additional_ru": "optional useful clarifications in Russian",
@@ -874,7 +1212,9 @@ Rules:
 - Fill key points with at least 4 items.
 - Fill glossary with at least 3 terms.
 - Fill self-check with at least 3 questions.
-- Fill quiz with 2-4 questions.`;
+- Fill quiz with 3-7 questions.
+- lesson_steps_ru and lesson_steps_uz must have at least 6 steps.
+- Include at least one "visual" step with page_from/page_to and visual_hint.`;
 
     const models = [
         'meta-llama/llama-3.3-70b-instruct',
@@ -961,14 +1301,54 @@ Rules:
             const quizRuRaw = normalizeQuiz(parsed?.quiz_ru);
             const quizUzRaw = normalizeQuiz(parsed?.quiz_uz);
 
-            const quizRu = ensureMinQuiz(quizRuRaw, 2, fallbackQuiz('RU', keyPointsRu));
-            const quizUz = ensureMinQuiz(quizUzRaw, 2, fallbackQuiz('UZ', keyPointsUz));
+            const quizRu = ensureMinQuiz(quizRuRaw, 3, fallbackQuiz('RU', keyPointsRu));
+            const quizUz = ensureMinQuiz(quizUzRaw, 3, fallbackQuiz('UZ', keyPointsUz));
 
             const conclusionRu = sanitizeSummary(parsed?.conclusion_ru, summaryRu, 2500);
             const conclusionUz = sanitizeSummary(parsed?.conclusion_uz, summaryUz, 2500);
 
             const additionalRu = sanitizeSummary(parsed?.additional_ru, '', 3000);
             const additionalUz = sanitizeSummary(parsed?.additional_uz, '', 3000);
+
+            const rememberRu = [conclusionRu, additionalRu, keyPointsRu.slice(0, 2).join(' | ')].filter(Boolean).join(' ');
+            const rememberUz = [conclusionUz, additionalUz, keyPointsUz.slice(0, 2).join(' | ')].filter(Boolean).join(' ');
+
+            const lessonStepsRuRaw = normalizeLessonSteps(parsed?.lesson_steps_ru, 'RU', pageWindow.page_from, pageWindow.page_to);
+            const lessonStepsUzRaw = normalizeLessonSteps(parsed?.lesson_steps_uz, 'UZ', pageWindow.page_from, pageWindow.page_to);
+
+            const lessonStepsRu = lessonStepsRuRaw.length >= 6
+                ? lessonStepsRuRaw
+                : buildFallbackLessonSteps(
+                    'RU',
+                    lesson.title,
+                    summaryRu,
+                    contentRu,
+                    keyPointsRu,
+                    practiceRu,
+                    rememberRu,
+                    quizRu,
+                    pageWindow,
+                    lessonPageFragments,
+                    hasVisualHints
+                );
+
+            const lessonStepsUz = lessonStepsUzRaw.length >= 6
+                ? lessonStepsUzRaw
+                : buildFallbackLessonSteps(
+                    'UZ',
+                    lesson.title,
+                    summaryUz,
+                    contentUz,
+                    keyPointsUz,
+                    practiceUz,
+                    rememberUz,
+                    quizUz,
+                    pageWindow,
+                    lessonPageFragments,
+                    hasVisualHints
+                );
+
+            const visualBlocks = buildVisualBlocks(lessonStepsRu, lessonStepsUz);
 
             return {
                 lesson_type,
@@ -993,6 +1373,9 @@ Rules:
                 homework_uz: homeworkUz,
                 quiz_ru: quizRu,
                 quiz_uz: quizUz,
+                lesson_steps_ru: lessonStepsRu,
+                lesson_steps_uz: lessonStepsUz,
+                visual_blocks: visualBlocks,
                 conclusion_ru: conclusionRu,
                 conclusion_uz: conclusionUz,
                 additional_ru: additionalRu,
@@ -1012,6 +1395,9 @@ async function enrichLessonPlanWithStructuredContent(
     classification: AIClassification,
     sourceLanguage: string,
     originalFileName: string,
+    pageFragments: PdfPageFragment[],
+    totalPages: number,
+    hasVisualHints: boolean,
     log?: FastifyBaseLogger
 ): Promise<{ moduleTitle: string; lessons: EnrichedLessonPlanItem[] }> {
     const enrichedLessons: EnrichedLessonPlanItem[] = [];
@@ -1024,6 +1410,10 @@ async function enrichLessonPlanWithStructuredContent(
             sourceLanguage,
             originalFileName,
             index,
+            lessonPlan.lessons.length,
+            pageFragments,
+            totalPages,
+            hasVisualHints,
             log
         );
 
@@ -1163,6 +1553,15 @@ async function upsertCourseModuleLessons(
                 RU: lesson.structured.quiz_ru,
                 UZ: lesson.structured.quiz_uz,
             };
+            const lessonStepsJson = {
+                RU: lesson.structured.lesson_steps_ru,
+                UZ: lesson.structured.lesson_steps_uz,
+            };
+            const visualBlocksJson = lesson.structured.visual_blocks;
+            const lessonTestJson = {
+                RU: lesson.structured.quiz_ru,
+                UZ: lesson.structured.quiz_uz,
+            };
             const conclusionJson = {
                 RU: lesson.structured.conclusion_ru,
                 UZ: lesson.structured.conclusion_uz,
@@ -1194,13 +1593,16 @@ async function upsertCourseModuleLessons(
                              self_check_questions_json = $15,
                              homework_json = $16,
                              quiz_json = $17,
-                             lesson_type = $18,
-                             source_section = $19,
-                             difficulty_level = $20,
-                             conclusion_json = $21,
-                             additional_notes_json = $22,
+                             lesson_steps_json = $18,
+                             visual_blocks_json = $19,
+                             lesson_test_json = $20,
+                             lesson_type = $21,
+                             source_section = $22,
+                             difficulty_level = $23,
+                             conclusion_json = $24,
+                             additional_notes_json = $25,
                              updated_at = NOW()
-                         WHERE id = $23`,
+                         WHERE id = $26`,
                         [
                             content,
                             summary,
@@ -1219,6 +1621,9 @@ async function upsertCourseModuleLessons(
                             JSON.stringify(selfCheckQuestionsJson),
                             JSON.stringify(homeworkJson),
                             JSON.stringify(quizJson),
+                            JSON.stringify(lessonStepsJson),
+                            JSON.stringify(visualBlocksJson),
+                            JSON.stringify(lessonTestJson),
                             lesson.structured.lesson_type,
                             lesson.structured.source_section,
                             lesson.structured.difficulty_level,
@@ -1245,6 +1650,7 @@ async function upsertCourseModuleLessons(
                             summary_ru, summary_uz,
                             key_points_json, glossary_json, practice_notes, conclusion_json, additional_notes_json,
                             common_mistakes_json, self_check_questions_json, homework_json, quiz_json,
+                            lesson_steps_json, visual_blocks_json, lesson_test_json,
                             lesson_type, source_section, difficulty_level,
                             sort_order, position, created_at, updated_at
                          )
@@ -1256,7 +1662,8 @@ async function upsertCourseModuleLessons(
                             $14, $15, $16, $17, $18,
                             $19, $20, $21, $22,
                             $23, $24, $25,
-                            $26, $26, NOW(), NOW()
+                            $26, $27, $28,
+                            $29, $29, NOW(), NOW()
                          )
                          RETURNING id`,
                         [
@@ -1282,6 +1689,9 @@ async function upsertCourseModuleLessons(
                             JSON.stringify(selfCheckQuestionsJson),
                             JSON.stringify(homeworkJson),
                             JSON.stringify(quizJson),
+                            JSON.stringify(lessonStepsJson),
+                            JSON.stringify(visualBlocksJson),
+                            JSON.stringify(lessonTestJson),
                             lesson.structured.lesson_type,
                             lesson.structured.source_section,
                             lesson.structured.difficulty_level,
@@ -1330,10 +1740,16 @@ export async function ingestPdf(
         if (log) log.info(`[Ingestion] Extracting text from: ${originalFileName}`);
         let extractedText = '';
         let fullText = '';
+        let totalPages = 1;
+        let pageFragments: PdfPageFragment[] = [];
+        let hasVisualHints = false;
         try {
             const extracted = await extractPdfText(filePath);
             extractedText = extracted.aiText;
             fullText = extracted.fullText;
+            totalPages = extracted.totalPages;
+            pageFragments = extracted.pageFragments;
+            hasVisualHints = extracted.hasVisualHints;
         } catch (pdfErr: any) {
             if (log) log.warn(`[Ingestion] pdf-parse failed: ${pdfErr.message} — using filename fallback`);
         }
@@ -1343,6 +1759,10 @@ export async function ingestPdf(
             if (log) log.warn(`[Ingestion] PDF has no/little text, using filename fallback: ${originalFileName}`);
             extractedText = `Trading material: ${originalFileName.replace('.pdf', '')}`;
             fullText = extractedText;
+            totalPages = Math.max(totalPages, 1);
+            pageFragments = pageFragments.length
+                ? pageFragments
+                : [{ page: 1, excerpt: extractedText.substring(0, 320), has_visual_hints: false }];
         }
 
         // 2. AI Classification
@@ -1362,6 +1782,9 @@ export async function ingestPdf(
             classification,
             sourceLanguage,
             originalFileName,
+            pageFragments,
+            totalPages,
+            hasVisualHints,
             log
         );
 
@@ -1386,7 +1809,11 @@ export async function ingestPdf(
                     source_language: sourceLanguage,
                     module_title: lessonPlan.moduleTitle,
                     lessons_created,
-                    lesson_titles: lessonPlan.lessons.map(l => l.title)
+                    lesson_titles: lessonPlan.lessons.map(l => l.title),
+                    total_pages: totalPages,
+                    has_visual_hints: hasVisualHints,
+                    step_blocks_per_lesson: enrichedLessonPlan.lessons.map((l) => l.structured.lesson_steps_ru.length),
+                    visual_blocks_per_lesson: enrichedLessonPlan.lessons.map((l) => l.structured.visual_blocks.length),
                 }),
                 course_id,
                 lesson_id,
@@ -1485,20 +1912,23 @@ export async function scanLibrary(log?: FastifyBaseLogger): Promise<{
                     if (validLinks) {
                         // For new multilingual lesson system, ensure generated content exists.
                         const lessonContentRes = await query(
-                            `SELECT content_ru, content_uz FROM lessons WHERE id = $1 LIMIT 1`,
+                            `SELECT content_ru, content_uz, lesson_steps_json, visual_blocks_json, lesson_test_json
+                             FROM lessons WHERE id = $1 LIMIT 1`,
                             [row.lesson_id]
                         ).catch(() => ({ rows: [] as any[] }));
 
                         const lessonRow = lessonContentRes.rows[0];
                         const hasMultilingualContent = !!lessonRow?.content_ru && !!lessonRow?.content_uz;
+                        const hasStepBlocks = !!lessonRow?.lesson_steps_json;
+                        const hasLessonTest = !!lessonRow?.lesson_test_json;
 
-                        if (hasMultilingualContent) {
+                        if (hasMultilingualContent && hasStepBlocks && hasLessonTest) {
                             if (log) log.info(`[scanLibrary] Skipping (already processed): ${file}`);
                             skipped++;
                             continue;
                         }
 
-                        if (log) log.info(`[scanLibrary] Reprocessing material without multilingual lesson content: ${file}`);
+                        if (log) log.info(`[scanLibrary] Reprocessing material without full step-based lesson structure: ${file}`);
                     }
                 }
 

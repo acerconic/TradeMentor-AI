@@ -35,6 +35,9 @@ type LessonDetails = {
   self_check_questions_json?: any;
   homework_json?: any;
   quiz_json?: any;
+  lesson_steps_json?: any;
+  visual_blocks_json?: any;
+  lesson_test_json?: any;
   lesson_type?: string | null;
   source_section?: string | null;
   difficulty_level?: string | null;
@@ -187,6 +190,13 @@ export default function AdminLessonPage({ params }: { params: { id: string } }) 
     const quizRu = Array.isArray(pickLocalized(lesson.quiz_json, 'RU')) ? pickLocalized(lesson.quiz_json, 'RU').length : 0;
     const quizUz = Array.isArray(pickLocalized(lesson.quiz_json, 'UZ')) ? pickLocalized(lesson.quiz_json, 'UZ').length : 0;
 
+    const stepsRu = Array.isArray(pickLocalized(lesson.lesson_steps_json, 'RU')) ? pickLocalized(lesson.lesson_steps_json, 'RU').length : 0;
+    const stepsUz = Array.isArray(pickLocalized(lesson.lesson_steps_json, 'UZ')) ? pickLocalized(lesson.lesson_steps_json, 'UZ').length : 0;
+    const visualBlocks = Array.isArray(lesson.visual_blocks_json) ? lesson.visual_blocks_json.length : 0;
+
+    const lessonTestRu = Array.isArray(pickLocalized(lesson.lesson_test_json, 'RU')) ? pickLocalized(lesson.lesson_test_json, 'RU').length : 0;
+    const lessonTestUz = Array.isArray(pickLocalized(lesson.lesson_test_json, 'UZ')) ? pickLocalized(lesson.lesson_test_json, 'UZ').length : 0;
+
     return {
       keyRu,
       keyUz,
@@ -198,6 +208,11 @@ export default function AdminLessonPage({ params }: { params: { id: string } }) 
       selfCheckUz,
       quizRu,
       quizUz,
+      stepsRu,
+      stepsUz,
+      visualBlocks,
+      lessonTestRu,
+      lessonTestUz,
     };
   }, [lesson]);
 
@@ -205,6 +220,23 @@ export default function AdminLessonPage({ params }: { params: { id: string } }) 
   const uzSummary = normalizeText(lesson?.summary_uz || lesson?.summary || lesson?.content_source || '');
   const ruContent = normalizeText(lesson?.content_ru || lesson?.content_source || '');
   const uzContent = normalizeText(lesson?.content_uz || lesson?.content_source || '');
+
+  const ruStepsPreview = useMemo(() => {
+    const raw = pickLocalized(lesson?.lesson_steps_json, 'RU');
+    if (!Array.isArray(raw)) return [] as any[];
+    return raw.slice(0, 8);
+  }, [lesson?.lesson_steps_json]);
+
+  const uzStepsPreview = useMemo(() => {
+    const raw = pickLocalized(lesson?.lesson_steps_json, 'UZ');
+    if (!Array.isArray(raw)) return [] as any[];
+    return raw.slice(0, 8);
+  }, [lesson?.lesson_steps_json]);
+
+  const visualBlocksPreview = useMemo(() => {
+    const raw = Array.isArray(lesson?.visual_blocks_json) ? lesson?.visual_blocks_json : [];
+    return raw.slice(0, 8);
+  }, [lesson?.visual_blocks_json]);
 
   const handleDeleteLesson = async () => {
     if (!lesson) return;
@@ -365,6 +397,9 @@ export default function AdminLessonPage({ params }: { params: { id: string } }) 
                   <p>Mistakes RU/UZ: <strong className="text-white">{sectionStats.mistakesRu}/{sectionStats.mistakesUz}</strong></p>
                   <p>Self-check RU/UZ: <strong className="text-white">{sectionStats.selfCheckRu}/{sectionStats.selfCheckUz}</strong></p>
                   <p>Quiz RU/UZ: <strong className="text-white">{sectionStats.quizRu}/{sectionStats.quizUz}</strong></p>
+                  <p>Step blocks RU/UZ: <strong className="text-white">{sectionStats.stepsRu}/{sectionStats.stepsUz}</strong></p>
+                  <p>Visual blocks: <strong className="text-white">{sectionStats.visualBlocks}</strong></p>
+                  <p>Lesson test RU/UZ: <strong className="text-white">{sectionStats.lessonTestRu}/{sectionStats.lessonTestUz}</strong></p>
                 </div>
               ) : (
                 <p className="text-sm mt-3" style={{ color: '#7B8CA6' }}>No structure stats.</p>
@@ -429,6 +464,77 @@ export default function AdminLessonPage({ params }: { params: { id: string } }) 
                 {(uzContent || 'No generated UZ content').slice(0, 2200)}
               </p>
             </div>
+          </section>
+
+          <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="glass-card p-5" style={{ border: '1px solid rgba(123,63,228,0.18)' }}>
+              <p className="text-xs uppercase font-black tracking-wider" style={{ color: '#C6ADFF' }}>
+                RU step-based flow preview
+              </p>
+              {ruStepsPreview.length === 0 ? (
+                <p className="text-sm mt-3" style={{ color: '#7B8CA6' }}>No RU step blocks</p>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {ruStepsPreview.map((step: any, idx: number) => (
+                    <div key={`ru-step-${idx}`} className="rounded-lg p-3" style={{ background: 'rgba(11,18,32,0.55)', border: '1px solid rgba(123,63,228,0.12)' }}>
+                      <p className="text-[11px] font-black uppercase" style={{ color: '#A87BFF' }}>
+                        {step.step_type || 'step'} · p.{step.page_from || 1}-{step.page_to || step.page_from || 1}
+                      </p>
+                      <p className="text-sm font-semibold text-white mt-1">{String(step.title || '')}</p>
+                      <p className="text-xs mt-1 line-clamp-2" style={{ color: '#C8D4E8' }}>
+                        {String(step.explanation || '')}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="glass-card p-5" style={{ border: '1px solid rgba(42,169,255,0.2)' }}>
+              <p className="text-xs uppercase font-black tracking-wider" style={{ color: '#67D5FF' }}>
+                UZ step-based flow preview
+              </p>
+              {uzStepsPreview.length === 0 ? (
+                <p className="text-sm mt-3" style={{ color: '#7B8CA6' }}>No UZ step blocks</p>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {uzStepsPreview.map((step: any, idx: number) => (
+                    <div key={`uz-step-${idx}`} className="rounded-lg p-3" style={{ background: 'rgba(11,18,32,0.55)', border: '1px solid rgba(42,169,255,0.12)' }}>
+                      <p className="text-[11px] font-black uppercase" style={{ color: '#67D5FF' }}>
+                        {step.step_type || 'step'} · p.{step.page_from || 1}-{step.page_to || step.page_from || 1}
+                      </p>
+                      <p className="text-sm font-semibold text-white mt-1">{String(step.title || '')}</p>
+                      <p className="text-xs mt-1 line-clamp-2" style={{ color: '#C8D4E8' }}>
+                        {String(step.explanation || '')}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="glass-card p-5" style={{ border: '1px solid rgba(16,185,129,0.24)' }}>
+            <p className="text-xs uppercase font-black tracking-wider" style={{ color: '#6EE7B7' }}>
+              Visual blocks from PDF/page fragments
+            </p>
+            {visualBlocksPreview.length === 0 ? (
+              <p className="text-sm mt-3" style={{ color: '#7B8CA6' }}>No visual blocks generated</p>
+            ) : (
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+                {visualBlocksPreview.map((item: any, idx: number) => (
+                  <div key={`vb-${idx}`} className="rounded-lg p-3" style={{ background: 'rgba(11,18,32,0.55)', border: '1px solid rgba(16,185,129,0.2)' }}>
+                    <p className="text-[11px] font-black uppercase" style={{ color: '#6EE7B7' }}>
+                      {String(item.visual_kind || 'page_fragment')} · p.{item.page_from || 1}-{item.page_to || item.page_from || 1}
+                    </p>
+                    <p className="text-sm font-semibold text-white mt-1">{String(item.caption_ru || item.caption_uz || 'Visual block')}</p>
+                    <p className="text-xs mt-1 line-clamp-2" style={{ color: '#C8D4E8' }}>
+                      {String(item.importance_ru || item.importance_uz || '')}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="glass-card overflow-hidden" style={{ border: '1px solid rgba(123,63,228,0.15)' }}>

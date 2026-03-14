@@ -393,6 +393,12 @@ export default function ImportLibraryPage() {
                                                     <p>Lessons: <strong className="text-white">{getLessonsCreated(mat)}</strong></p>
                                                     <p>Source: <strong className="text-white">{getSourceLanguage(mat)}</strong></p>
                                                     {meta?.module_title && <p>Module: <strong className="text-white">{String(meta.module_title)}</strong></p>}
+                                                    {Array.isArray(meta?.step_blocks_per_lesson) && (
+                                                        <p>Steps/lesson: <strong className="text-white">{meta.step_blocks_per_lesson.join(', ')}</strong></p>
+                                                    )}
+                                                    {Array.isArray(meta?.visual_blocks_per_lesson) && (
+                                                        <p>Visual/lesson: <strong className="text-white">{meta.visual_blocks_per_lesson.join(', ')}</strong></p>
+                                                    )}
                                                     {lessonTitles.length > 0 && (
                                                         <p className="line-clamp-2" style={{ color: '#C8D4E8' }}>
                                                             {lessonTitles.join(' · ')}
