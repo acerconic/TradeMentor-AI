@@ -24,7 +24,18 @@ import {
   User,
 } from 'lucide-react';
 
-type Lesson = { id: string; title: string; summary?: string; pdf_path?: string; sort_order?: number; position?: number; is_completed?: boolean };
+type Lesson = {
+  id: string;
+  title: string;
+  summary?: string;
+  pdf_path?: string;
+  sort_order?: number;
+  position?: number;
+  is_completed?: boolean;
+  lesson_type?: string;
+  difficulty_level?: string;
+  source_language?: string;
+};
 type Module = { id: string; title: string; sort_order?: number; lessons?: Lesson[] };
 
 export default function CoursePage({ params }: { params: { id: string } }) {
@@ -299,6 +310,19 @@ export default function CoursePage({ params }: { params: { id: string } }) {
                                           {lesson.summary}
                                         </p>
                                       )}
+                                      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase" style={{ background: 'rgba(123,63,228,0.16)', color: '#D8CCFF' }}>
+                                          {lesson.lesson_type || 'theory'}
+                                        </span>
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase" style={{ background: 'rgba(16,185,129,0.14)', color: '#6EE7B7' }}>
+                                          {lesson.difficulty_level || 'Beginner'}
+                                        </span>
+                                        {lesson.source_language && (
+                                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase" style={{ background: 'rgba(42,169,255,0.14)', color: '#67D5FF' }}>
+                                            {lesson.source_language}
+                                          </span>
+                                        )}
+                                      </div>
                                       <div className="flex items-center gap-3 mt-1">
                                         {lesson.is_completed ? (
                                           <span className="inline-flex items-center gap-1 text-[10px] font-bold" style={{ color: '#10B981' }}>

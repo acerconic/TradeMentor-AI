@@ -48,6 +48,50 @@ function getLevelDescription(level: string, language: 'RU' | 'UZ') {
     return 'Стартуем с фундаментальных блоков: market structure, risk management и психология.';
 }
 
+function getLevelRoadmap(level: string, language: 'RU' | 'UZ') {
+    if (language === 'UZ') {
+        if (level === 'Advanced') {
+            return [
+                'Hafta 1: murakkab likvidlik va multi-timeframe kontekst',
+                'Hafta 2: execution optimizatsiyasi va position management',
+                'Hafta 3: AI bilan setup validation va post-trade review',
+            ];
+        }
+        if (level === 'Intermediate') {
+            return [
+                'Hafta 1: market structure va trend tasdiqlash',
+                'Hafta 2: risk-intizom va checklist orqali kirish',
+                'Hafta 3: setup statistikasi va xatolarni qisqartirish',
+            ];
+        }
+        return [
+            'Hafta 1: asosiy terminlar va chart struktura',
+            'Hafta 2: stop-loss, target va xavf boshqaruvi',
+            'Hafta 3: oddiy trading plan va jurnal yuritish',
+        ];
+    }
+
+    if (level === 'Advanced') {
+        return [
+            'Неделя 1: сложная ликвидность и multi-timeframe контекст',
+            'Неделя 2: оптимизация execution и управление позицией',
+            'Неделя 3: AI-валидация сетапов и пост-трейд review',
+        ];
+    }
+    if (level === 'Intermediate') {
+        return [
+            'Неделя 1: market structure и подтверждение тренда',
+            'Неделя 2: risk-дисциплина и вход по checklist',
+            'Неделя 3: статистика сетапов и сокращение ошибок',
+        ];
+    }
+    return [
+        'Неделя 1: базовые термины и структура графика',
+        'Неделя 2: стоп-лосс, цель и контроль риска',
+        'Неделя 3: простой trading plan и ведение журнала',
+    ];
+}
+
 export default function AssessmentPage() {
     const { language, setLanguage } = useLanguage();
     const router = useRouter();
@@ -130,6 +174,23 @@ export default function AssessmentPage() {
                                 <div className="rounded-xl p-4" style={{ background: 'rgba(17,26,47,0.72)', border: '1px solid rgba(123,63,228,0.2)' }}>
                                     <Sparkles size={16} style={{ color: '#A87BFF' }} />
                                     <p className="text-sm font-semibold text-white mt-2">{language === 'UZ' ? 'AI personalization' : 'Персонализация AI'}</p>
+                                </div>
+                            </div>
+
+                            <div className="mt-5 rounded-xl p-4" style={{ background: 'rgba(11,18,32,0.55)', border: '1px solid rgba(16,185,129,0.22)' }}>
+                                <p className="text-xs uppercase tracking-widest font-black" style={{ color: '#6EE7B7' }}>
+                                    {language === 'UZ' ? 'Siz oladigan natijalar' : 'Что вы получите'}
+                                </p>
+                                <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2 text-sm" style={{ color: '#D5E2F4' }}>
+                                    <div className="rounded-lg p-2" style={{ background: 'rgba(17,26,47,0.65)' }}>
+                                        {language === 'UZ' ? 'Aniq daraja va shaxsiy roadmap' : 'Точный уровень и персональный roadmap'}
+                                    </div>
+                                    <div className="rounded-lg p-2" style={{ background: 'rgba(17,26,47,0.65)' }}>
+                                        {language === 'UZ' ? 'Darslarda AI kontekstli yordam' : 'Контекстная помощь AI прямо в уроках'}
+                                    </div>
+                                    <div className="rounded-lg p-2" style={{ background: 'rgba(17,26,47,0.65)' }}>
+                                        {language === 'UZ' ? 'Risk va execution bo\'yicha nazorat' : 'Контроль риска и execution по шагам'}
+                                    </div>
                                 </div>
                             </div>
 
@@ -265,6 +326,20 @@ export default function AssessmentPage() {
                                     <p className="text-sm mt-2" style={{ color: '#C8D4E8' }}>
                                         {getLevelDescription(result.level, language)}
                                     </p>
+                                </div>
+
+                                <div className="mt-4 rounded-xl p-4 text-left" style={{ background: 'rgba(11,18,32,0.55)', border: '1px solid rgba(42,169,255,0.2)' }}>
+                                    <p className="text-xs uppercase tracking-widest font-bold" style={{ color: '#67D5FF' }}>
+                                        {language === 'UZ' ? '3 haftalik roadmap' : 'Roadmap на 3 недели'}
+                                    </p>
+                                    <ul className="mt-2 space-y-2">
+                                        {getLevelRoadmap(result.level, language).map((item) => (
+                                            <li key={item} className="text-sm" style={{ color: '#D5E2F4' }}>
+                                                <span className="font-black mr-2" style={{ color: '#67D5FF' }}>•</span>
+                                                {item}
+                                            </li>
+                                        ))}
+                                    </ul>
                                 </div>
 
                                 <div className="flex flex-wrap items-center justify-center gap-3 mt-8">

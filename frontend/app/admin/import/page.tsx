@@ -146,13 +146,23 @@ export default function ImportLibraryPage() {
     const processedCount = materials.filter(m => m.status === 'processed').length;
     const failedCount = materials.filter(m => m.status === 'failed').length;
 
-    const getSourceLanguage = (material: Material) => {
+    const getMaterialMeta = (material: Material) => {
         try {
-            const meta = material.ai_metadata ? JSON.parse(material.ai_metadata) : null;
-            return String(meta?.source_language || '').toUpperCase() || 'UNKNOWN';
+            return material.ai_metadata ? JSON.parse(material.ai_metadata) : null;
         } catch {
-            return 'UNKNOWN';
+            return null;
         }
+    };
+
+    const getSourceLanguage = (material: Material) => {
+        const meta = getMaterialMeta(material);
+        return String(meta?.source_language || '').toUpperCase() || 'UNKNOWN';
+    };
+
+    const getLessonsCreated = (material: Material) => {
+        const meta = getMaterialMeta(material);
+        const count = Number(meta?.lessons_created || 0);
+        return count > 0 ? count : 1;
     };
 
     return (
@@ -332,19 +342,19 @@ export default function ImportLibraryPage() {
                         <table className="w-full">
                             <thead>
                                 <tr style={{ borderBottom: '1px solid rgba(123,63,228,0.15)', background: 'rgba(11,18,32,0.5)' }}>
-                                    {['File Name', 'Category', 'Status', 'Imported At', 'Actions'].map(h => (
+                                    {['File Name', 'Category', 'Status', 'AI Output', 'Imported At', 'Actions'].map(h => (
                                         <th key={h} className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider" style={{ color: '#7B8CA6' }}>{h}</th>
                                     ))}
                                 </tr>
                             </thead>
                             <tbody>
                                 {isLoadingMaterials ? (
-                                    <tr><td colSpan={5} className="px-6 py-12 text-center" style={{ color: '#7B8CA6' }}>
+                                    <tr><td colSpan={6} className="px-6 py-12 text-center" style={{ color: '#7B8CA6' }}>
                                         <Loader2 size={24} className="animate-spin mx-auto mb-2" style={{ color: '#7B3FE4' }} />
                                         Loading...
                                     </td></tr>
                                 ) : materials.length === 0 ? (
-                                    <tr><td colSpan={5} className="px-6 py-16 text-center">
+                                    <tr><td colSpan={6} className="px-6 py-16 text-center">
                                         <div className="flex flex-col items-center gap-3">
                                             <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(123,63,228,0.1)' }}>
                                                 <Library size={28} style={{ color: '#7B3FE4' }} />
@@ -353,7 +363,13 @@ export default function ImportLibraryPage() {
                                             <p className="text-sm" style={{ color: '#3D4D63' }}>Use "Scan data/library" or upload a PDF above</p>
                                         </div>
                                     </td></tr>
-                                ) : materials.map((mat) => (
+                                ) : materials.map((mat) => {
+                                    const meta = getMaterialMeta(mat);
+                                    const lessonTitles = Array.isArray(meta?.lesson_titles)
+                                        ? meta.lesson_titles.map((item: any) => String(item || '').trim()).filter(Boolean).slice(0, 3)
+                                        : [];
+
+                                    return (
                                     <tr key={mat.id} className="table-row-hover transition-colors" style={{ borderBottom: '1px solid rgba(123,63,228,0.08)' }}>
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-3">
@@ -371,6 +387,22 @@ export default function ImportLibraryPage() {
                                             )}
                                         </td>
                                         <td className="px-6 py-4"><StatusBadge status={mat.status} /></td>
+                                        <td className="px-6 py-4">
+                                            {mat.status === 'processed' ? (
+                                                <div className="space-y-1.5 text-[11px]" style={{ color: '#9AB1D2' }}>
+                                                    <p>Lessons: <strong className="text-white">{getLessonsCreated(mat)}</strong></p>
+                                                    <p>Source: <strong className="text-white">{getSourceLanguage(mat)}</strong></p>
+                                                    {meta?.module_title && <p>Module: <strong className="text-white">{String(meta.module_title)}</strong></p>}
+                                                    {lessonTitles.length > 0 && (
+                                                        <p className="line-clamp-2" style={{ color: '#C8D4E8' }}>
+                                                            {lessonTitles.join(' · ')}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <span className="text-xs" style={{ color: '#7B8CA6' }}>No AI output yet</span>
+                                            )}
+                                        </td>
                                         <td className="px-6 py-4 text-sm" style={{ color: '#7B8CA6' }}>
                                             {new Date(mat.created_at).toLocaleDateString()} {new Date(mat.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                         </td>
@@ -399,13 +431,13 @@ export default function ImportLibraryPage() {
                                                 )}
                                                 {mat.status === 'processed' && (
                                                     <span className="text-[11px]" style={{ color: '#7B8CA6' }}>
-                                                        Source: {getSourceLanguage(mat)}
+                                                        Ready
                                                     </span>
                                                 )}
                                             </div>
                                         </td>
                                     </tr>
-                                ))}
+                                )})}
                             </tbody>
                         </table>
                     </div>

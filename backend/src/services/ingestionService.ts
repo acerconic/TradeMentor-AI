@@ -38,7 +38,17 @@ interface LessonPlanItem {
     sourceText: string;
 }
 
+interface QuizItem {
+    question: string;
+    options: string[];
+    correct_index: number;
+    explanation: string;
+}
+
 interface StructuredLessonContent {
+    lesson_type: 'theory' | 'strategy' | 'chart' | 'glossary' | 'psychology';
+    difficulty_level: 'Beginner' | 'Intermediate' | 'Advanced';
+    source_section: string;
     summary_ru: string;
     summary_uz: string;
     content_source: string;
@@ -50,6 +60,14 @@ interface StructuredLessonContent {
     glossary_uz: Array<{ term: string; definition: string }>;
     practice_ru: string;
     practice_uz: string;
+    common_mistakes_ru: string[];
+    common_mistakes_uz: string[];
+    self_check_ru: string[];
+    self_check_uz: string[];
+    homework_ru: string;
+    homework_uz: string;
+    quiz_ru: QuizItem[];
+    quiz_uz: QuizItem[];
     conclusion_ru: string;
     conclusion_uz: string;
     additional_ru: string;
@@ -551,6 +569,248 @@ function normalizeStringArray(raw: any, maxItems = 15): string[] {
         .slice(0, maxItems);
 }
 
+function normalizeQuiz(raw: any): QuizItem[] {
+    if (!Array.isArray(raw)) return [];
+
+    return raw
+        .map((item: any) => {
+            const question = sanitizeSummary(String(item?.question || ''), '', 260);
+            const optionsRaw = Array.isArray(item?.options) ? item.options : [];
+            const options = optionsRaw
+                .map((opt: any) => sanitizeSummary(String(opt || ''), '', 180))
+                .filter(Boolean)
+                .slice(0, 6);
+
+            if (!question || options.length < 2) return null;
+
+            const correctRaw = Number(item?.correct_index);
+            const correct_index = Number.isInteger(correctRaw)
+                ? Math.max(0, Math.min(options.length - 1, correctRaw))
+                : 0;
+
+            const explanation = sanitizeSummary(String(item?.explanation || ''), '', 500);
+
+            return {
+                question,
+                options,
+                correct_index,
+                explanation,
+            } as QuizItem;
+        })
+        .filter(Boolean)
+        .slice(0, 6) as QuizItem[];
+}
+
+function fallbackKeyPoints(language: 'RU' | 'UZ', lessonTitle: string, summary: string): string[] {
+    if (language === 'UZ') {
+        return [
+            `${lessonTitle}: asosiy g'oyani bitta aniq qoidaga aylantiring.`,
+            `Trend va bozor strukturasi bo'yicha xulosani oldindan yozib chiqing.`,
+            `Kirishdan oldin risk-limit (1-2%) va stop joylashuvini tekshiring.`,
+            `Likvidlik zonasi va tasdiqlovchi signalni birga baholang.`,
+            sanitizeSummary(summary, 'Dars mazmunini qisqa chek-listga aylantiring.', 240),
+        ];
+    }
+
+    return [
+        `${lessonTitle}: переведите ключевую идею в одно прикладное правило.`,
+        `Перед входом зафиксируйте вывод по тренду и структуре рынка.`,
+        `Проверьте риск-лимит (1-2%) и расположение стопа до открытия сделки.`,
+        `Оценивайте ликвидность и подтверждающий сигнал в связке.`,
+        sanitizeSummary(summary, 'Сведите урок к краткому чек-листу исполнения.', 240),
+    ];
+}
+
+function fallbackGlossary(language: 'RU' | 'UZ'): Array<{ term: string; definition: string }> {
+    if (language === 'UZ') {
+        return [
+            { term: 'Liquidity', definition: "Bozorda buyurtmalar to'plangan hudud, narx tez-tez shu zonaga qaytadi." },
+            { term: 'Break of Structure', definition: "Muhim maksimum/minimum buzilishi orqali trend yo'nalishi tasdiqlanadi." },
+            { term: 'Order Block', definition: "Yirik ishtirokchilar izi ko'rinadigan zona, kirish uchun orientir bo'ladi." },
+            { term: 'Risk-to-Reward', definition: "Potensial foyda va zarar nisbati, strategiya sifatini baholaydi." },
+        ];
+    }
+
+    return [
+        { term: 'Liquidity', definition: 'Зона концентрации ордеров, куда цена часто возвращается перед движением.' },
+        { term: 'Break of Structure', definition: 'Пробой ключевого максимума/минимума, подтверждающий смену структуры.' },
+        { term: 'Order Block', definition: 'Область активности крупных участников, часто дающая рабочий вход.' },
+        { term: 'Risk-to-Reward', definition: 'Соотношение потенциальной прибыли к риску в сделке.' },
+    ];
+}
+
+function fallbackCommonMistakes(language: 'RU' | 'UZ'): string[] {
+    if (language === 'UZ') {
+        return [
+            `Setupni timeframe kontekstisiz baholash.`,
+            `Stop-lossni rejasiz surish yoki bekor qilish.`,
+            `Risk qoidalarini buzib pozitsiya hajmini oshirish.`,
+            `Tasdiq signalini kutmasdan shoshma-shosharlik bilan kirish.`,
+        ];
+    }
+
+    return [
+        `Оценка сетапа без контекста старшего таймфрейма.`,
+        `Перенос или удаление стоп-лосса без плана.`,
+        `Увеличение объема позиции с нарушением risk-правил.`,
+        `Вход в сделку до подтверждающего сигнала.`,
+    ];
+}
+
+function fallbackSelfCheck(language: 'RU' | 'UZ', lessonTitle: string): string[] {
+    if (language === 'UZ') {
+        return [
+            `${lessonTitle} bo'yicha asosiy kirish sharti nimadan iborat?`,
+            `Bitimdan oldin qaysi risk-checklist bandlarini tasdiqlaysiz?`,
+            `Noto'g'ri scenariy bo'lsa chiqish rejangiz qanday ishlaydi?`,
+        ];
+    }
+
+    return [
+        `Какое ключевое условие входа вы используете по теме "${lessonTitle}"?`,
+        `Какие пункты risk-checklist вы подтверждаете до сделки?`,
+        `Как работает ваш план выхода при неверном сценарии?`,
+    ];
+}
+
+function fallbackHomework(language: 'RU' | 'UZ', lessonTitle: string, practice: string): string {
+    if (language === 'UZ') {
+        return [
+            `Uyga vazifa (${lessonTitle}):`,
+            `- 3 ta chart toping va setupni bosqichma-bosqich tahlil qiling.`,
+            `- Har bir chart uchun kirish, stop va targetni yozing.`,
+            `- Amaliy blokdan quyidagini jurnalga kiriting: ${sanitizeSummary(practice, 'setup execution', 180)}.`,
+        ].join('\n');
+    }
+
+    return [
+        `Домашнее задание (${lessonTitle}):`,
+        `- Выберите 3 графика и разберите сетап по шагам.`,
+        `- Для каждого графика пропишите вход, стоп и цель.`,
+        `- В дневнике зафиксируйте применение блока практики: ${sanitizeSummary(practice, 'execution чек-лист', 180)}.`,
+    ].join('\n');
+}
+
+function fallbackQuiz(language: 'RU' | 'UZ', keyPoints: string[]): QuizItem[] {
+    const focus = sanitizeSummary(keyPoints[0] || '', language === 'UZ' ? 'trend konteksti' : 'контекст тренда', 120);
+
+    if (language === 'UZ') {
+        return [
+            {
+                question: `Setupdan oldin birinchi navbatda nimani tekshirasiz (${focus})?`,
+                options: ['Faqat oxirgi sham', 'Kontekst va struktura', 'Faqat indikator rangi'],
+                correct_index: 1,
+                explanation: `To'g'ri javob - kontekst va struktura, chunki signal alohida holda yetarli emas.`,
+            },
+            {
+                question: `Riskni boshqarishda eng to'g'ri yondashuv qaysi?`,
+                options: ["Lotni his-tuyg'u bo'yicha oshirish", 'Riskni oldindan belgilash', 'Stop-losssiz savdo qilish'],
+                correct_index: 1,
+                explanation: `Risk oldindan belgilanganda strategiya barqaror bo'ladi.`,
+            },
+        ];
+    }
+
+    return [
+        {
+            question: `Что проверяется в первую очередь перед входом (${focus})?`,
+            options: ['Только последняя свеча', 'Контекст и структура', 'Только индикатор'],
+            correct_index: 1,
+            explanation: `Верно: контекст и структура, без этого сигнал ненадежен.`,
+        },
+        {
+            question: `Какой подход к risk management наиболее корректный?`,
+            options: ['Увеличивать объем по эмоциям', 'Фиксировать риск до входа', 'Торговать без стопа'],
+            correct_index: 1,
+            explanation: `Риск нужно фиксировать до входа, чтобы сохранить статистическое преимущество.`,
+        },
+    ];
+}
+
+function ensureMinItems(items: string[], min: number, fallbackItems: string[]): string[] {
+    const normalized = (items || []).map((item) => sanitizeSummary(item, '', 280)).filter(Boolean);
+    if (normalized.length >= min) return normalized.slice(0, 15);
+
+    const combined = [...normalized];
+    for (const fallback of fallbackItems) {
+        if (combined.length >= min) break;
+        const value = sanitizeSummary(fallback, '', 280);
+        if (value && !combined.includes(value)) combined.push(value);
+    }
+
+    return combined.slice(0, 15);
+}
+
+function ensureMinGlossary(
+    items: Array<{ term: string; definition: string }>,
+    min: number,
+    fallbackItems: Array<{ term: string; definition: string }>
+): Array<{ term: string; definition: string }> {
+    const normalized = (items || [])
+        .map((item) => ({
+            term: sanitizeTitle(item?.term || '', '', 80),
+            definition: sanitizeSummary(item?.definition || '', '', 350),
+        }))
+        .filter((item) => item.term && item.definition);
+
+    if (normalized.length >= min) return normalized.slice(0, 25);
+
+    const combined = [...normalized];
+    for (const fallback of fallbackItems) {
+        if (combined.length >= min) break;
+        const term = sanitizeTitle(fallback.term || '', '', 80);
+        const definition = sanitizeSummary(fallback.definition || '', '', 350);
+        if (!term || !definition) continue;
+        if (!combined.some((item) => item.term.toLowerCase() === term.toLowerCase())) {
+            combined.push({ term, definition });
+        }
+    }
+
+    return combined.slice(0, 25);
+}
+
+function ensureMinQuiz(items: QuizItem[], min: number, fallbackItems: QuizItem[]): QuizItem[] {
+    const normalized = (items || [])
+        .map((item) => {
+            const question = sanitizeSummary(item?.question || '', '', 260);
+            const options = Array.isArray(item?.options)
+                ? item.options.map((option) => sanitizeSummary(option || '', '', 180)).filter(Boolean).slice(0, 6)
+                : [];
+            if (!question || options.length < 2) return null;
+
+            const correctRaw = Number(item?.correct_index);
+            const correct_index = Number.isInteger(correctRaw)
+                ? Math.max(0, Math.min(options.length - 1, correctRaw))
+                : 0;
+
+            const explanation = sanitizeSummary(item?.explanation || '', '', 500);
+
+            return {
+                question,
+                options,
+                correct_index,
+                explanation,
+            } as QuizItem;
+        })
+        .filter(Boolean) as QuizItem[];
+
+    if (normalized.length >= min) return normalized.slice(0, 6);
+
+    const combined = [...normalized];
+    for (const fallback of fallbackItems) {
+        if (combined.length >= min) break;
+        const normalizedFallback = normalizeQuiz([fallback]);
+        if (!normalizedFallback.length) continue;
+
+        const candidate = normalizedFallback[0];
+        if (!combined.some((item) => item.question.toLowerCase() === candidate.question.toLowerCase())) {
+            combined.push(candidate);
+        }
+    }
+
+    return combined.slice(0, 6);
+}
+
 async function generateStructuredLessonContent(
     lesson: LessonPlanItem,
     classification: AIClassification,
@@ -576,6 +836,9 @@ ${sourceSnippet}
 
 Return ONLY valid JSON with this shape:
 {
+  "lesson_type": "one of: theory, strategy, chart, glossary, psychology",
+  "difficulty_level": "Beginner or Intermediate or Advanced",
+  "source_section": "source chapter/section/page range used for this lesson",
   "summary_ru": "short concise summary in Russian",
   "summary_uz": "short concise summary in Uzbek",
   "content_source": "clean explanation in source language",
@@ -587,6 +850,14 @@ Return ONLY valid JSON with this shape:
   "glossary_uz": [{"term":"...", "definition":"..."}],
   "practice_ru": "practical task / checklist in Russian",
   "practice_uz": "practical task / checklist in Uzbek",
+  "common_mistakes_ru": ["..."],
+  "common_mistakes_uz": ["..."],
+  "self_check_ru": ["..."],
+  "self_check_uz": ["..."],
+  "homework_ru": "homework in Russian",
+  "homework_uz": "homework in Uzbek",
+  "quiz_ru": [{"question":"...", "options":["..."], "correct_index":0, "explanation":"..."}],
+  "quiz_uz": [{"question":"...", "options":["..."], "correct_index":0, "explanation":"..."}],
   "conclusion_ru": "lesson conclusion in Russian",
   "conclusion_uz": "lesson conclusion in Uzbek",
   "additional_ru": "optional useful clarifications in Russian",
@@ -597,7 +868,13 @@ Rules:
 - Keep original trading terms and definitions accurate.
 - Do NOT invent facts that are absent in source.
 - Make explanation pedagogical and clear.
-- Keep RU and UZ high quality and natural.`;
+- Keep RU and UZ high quality and natural.
+- Include practical application on chart where relevant.
+- Include what to remember and what beginners should not confuse in mistakes/check/questions.
+- Fill key points with at least 4 items.
+- Fill glossary with at least 3 terms.
+- Fill self-check with at least 3 questions.
+- Fill quiz with 2-4 questions.`;
 
     const models = [
         'meta-llama/llama-3.3-70b-instruct',
@@ -619,6 +896,22 @@ Rules:
 
             const parsed = JSON.parse(jsonMatch[0]);
 
+            const lessonTypeRaw = String(parsed?.lesson_type || '').toLowerCase();
+            const lesson_type: StructuredLessonContent['lesson_type'] =
+                lessonTypeRaw === 'strategy' || lessonTypeRaw === 'chart' || lessonTypeRaw === 'glossary' || lessonTypeRaw === 'psychology'
+                    ? lessonTypeRaw
+                    : 'theory';
+
+            const difficultyRaw = String(parsed?.difficulty_level || '').toLowerCase();
+            const difficulty_level: StructuredLessonContent['difficulty_level'] =
+                difficultyRaw === 'advanced'
+                    ? 'Advanced'
+                    : difficultyRaw === 'intermediate'
+                        ? 'Intermediate'
+                        : 'Beginner';
+
+            const source_section = sanitizeSummary(parsed?.source_section, `${classification.module_title} / ${lesson.title}`, 220);
+
             const summaryRu = sanitizeSummary(parsed?.summary_ru, lesson.summary || classification.summary, 1200);
             const summaryUz = sanitizeSummary(parsed?.summary_uz, summaryRu, 1200);
 
@@ -626,14 +919,50 @@ Rules:
             const contentRu = sanitizeSummary(parsed?.content_ru, summaryRu, 15000);
             const contentUz = sanitizeSummary(parsed?.content_uz, summaryUz, 15000);
 
-            const keyPointsRu = normalizeStringArray(parsed?.key_points_ru, 15);
-            const keyPointsUz = normalizeStringArray(parsed?.key_points_uz, 15);
+            const keyPointsRuRaw = normalizeStringArray(parsed?.key_points_ru, 15);
+            const keyPointsUzRaw = normalizeStringArray(parsed?.key_points_uz, 15);
 
-            const glossaryRu = normalizeGlossary(parsed?.glossary_ru);
-            const glossaryUz = normalizeGlossary(parsed?.glossary_uz);
+            const keyPointsRu = ensureMinItems(
+                keyPointsRuRaw,
+                4,
+                fallbackKeyPoints('RU', lesson.title, summaryRu)
+            );
+            const keyPointsUz = ensureMinItems(
+                keyPointsUzRaw,
+                4,
+                fallbackKeyPoints('UZ', lesson.title, summaryUz)
+            );
+
+            const glossaryRuRaw = normalizeGlossary(parsed?.glossary_ru);
+            const glossaryUzRaw = normalizeGlossary(parsed?.glossary_uz);
+
+            const glossaryRu = ensureMinGlossary(glossaryRuRaw, 3, fallbackGlossary('RU'));
+            const glossaryUz = ensureMinGlossary(glossaryUzRaw, 3, fallbackGlossary('UZ'));
 
             const practiceRu = sanitizeSummary(parsed?.practice_ru, summaryRu, 3000);
             const practiceUz = sanitizeSummary(parsed?.practice_uz, summaryUz, 3000);
+
+            const commonMistakesRuRaw = normalizeStringArray(parsed?.common_mistakes_ru, 12);
+            const commonMistakesUzRaw = normalizeStringArray(parsed?.common_mistakes_uz, 12);
+            const selfCheckRuRaw = normalizeStringArray(parsed?.self_check_ru, 10);
+            const selfCheckUzRaw = normalizeStringArray(parsed?.self_check_uz, 10);
+
+            const commonMistakesRu = ensureMinItems(commonMistakesRuRaw, 3, fallbackCommonMistakes('RU'));
+            const commonMistakesUz = ensureMinItems(commonMistakesUzRaw, 3, fallbackCommonMistakes('UZ'));
+            const selfCheckRu = ensureMinItems(selfCheckRuRaw, 3, fallbackSelfCheck('RU', lesson.title));
+            const selfCheckUz = ensureMinItems(selfCheckUzRaw, 3, fallbackSelfCheck('UZ', lesson.title));
+
+            const homeworkRuRaw = sanitizeSummary(parsed?.homework_ru, '', 3000);
+            const homeworkUzRaw = sanitizeSummary(parsed?.homework_uz, '', 3000);
+
+            const homeworkRu = homeworkRuRaw || fallbackHomework('RU', lesson.title, practiceRu);
+            const homeworkUz = homeworkUzRaw || fallbackHomework('UZ', lesson.title, practiceUz);
+
+            const quizRuRaw = normalizeQuiz(parsed?.quiz_ru);
+            const quizUzRaw = normalizeQuiz(parsed?.quiz_uz);
+
+            const quizRu = ensureMinQuiz(quizRuRaw, 2, fallbackQuiz('RU', keyPointsRu));
+            const quizUz = ensureMinQuiz(quizUzRaw, 2, fallbackQuiz('UZ', keyPointsUz));
 
             const conclusionRu = sanitizeSummary(parsed?.conclusion_ru, summaryRu, 2500);
             const conclusionUz = sanitizeSummary(parsed?.conclusion_uz, summaryUz, 2500);
@@ -642,6 +971,9 @@ Rules:
             const additionalUz = sanitizeSummary(parsed?.additional_uz, '', 3000);
 
             return {
+                lesson_type,
+                difficulty_level,
+                source_section,
                 summary_ru: summaryRu,
                 summary_uz: summaryUz,
                 content_source: contentSource,
@@ -653,6 +985,14 @@ Rules:
                 glossary_uz: glossaryUz,
                 practice_ru: practiceRu,
                 practice_uz: practiceUz,
+                common_mistakes_ru: commonMistakesRu,
+                common_mistakes_uz: commonMistakesUz,
+                self_check_ru: selfCheckRu,
+                self_check_uz: selfCheckUz,
+                homework_ru: homeworkRu,
+                homework_uz: homeworkUz,
+                quiz_ru: quizRu,
+                quiz_uz: quizUz,
                 conclusion_ru: conclusionRu,
                 conclusion_uz: conclusionUz,
                 additional_ru: additionalRu,
@@ -807,6 +1147,22 @@ async function upsertCourseModuleLessons(
                 RU: lesson.structured.practice_ru,
                 UZ: lesson.structured.practice_uz,
             };
+            const commonMistakesJson = {
+                RU: lesson.structured.common_mistakes_ru,
+                UZ: lesson.structured.common_mistakes_uz,
+            };
+            const selfCheckQuestionsJson = {
+                RU: lesson.structured.self_check_ru,
+                UZ: lesson.structured.self_check_uz,
+            };
+            const homeworkJson = {
+                RU: lesson.structured.homework_ru,
+                UZ: lesson.structured.homework_uz,
+            };
+            const quizJson = {
+                RU: lesson.structured.quiz_ru,
+                UZ: lesson.structured.quiz_uz,
+            };
             const conclusionJson = {
                 RU: lesson.structured.conclusion_ru,
                 UZ: lesson.structured.conclusion_uz,
@@ -834,10 +1190,17 @@ async function upsertCourseModuleLessons(
                              key_points_json = $11,
                              glossary_json = $12,
                              practice_notes = $13,
-                             conclusion_json = $14,
-                             additional_notes_json = $15,
+                             common_mistakes_json = $14,
+                             self_check_questions_json = $15,
+                             homework_json = $16,
+                             quiz_json = $17,
+                             lesson_type = $18,
+                             source_section = $19,
+                             difficulty_level = $20,
+                             conclusion_json = $21,
+                             additional_notes_json = $22,
                              updated_at = NOW()
-                         WHERE id = $16`,
+                         WHERE id = $23`,
                         [
                             content,
                             summary,
@@ -852,6 +1215,13 @@ async function upsertCourseModuleLessons(
                             JSON.stringify(keyPointsJson),
                             JSON.stringify(glossaryJson),
                             JSON.stringify(practiceNotesJson),
+                            JSON.stringify(commonMistakesJson),
+                            JSON.stringify(selfCheckQuestionsJson),
+                            JSON.stringify(homeworkJson),
+                            JSON.stringify(quizJson),
+                            lesson.structured.lesson_type,
+                            lesson.structured.source_section,
+                            lesson.structured.difficulty_level,
                             JSON.stringify(conclusionJson),
                             JSON.stringify(additionalNotesJson),
                             existing.id,
@@ -874,6 +1244,8 @@ async function upsertCourseModuleLessons(
                             source_language, content_source, content_ru, content_uz,
                             summary_ru, summary_uz,
                             key_points_json, glossary_json, practice_notes, conclusion_json, additional_notes_json,
+                            common_mistakes_json, self_check_questions_json, homework_json, quiz_json,
+                            lesson_type, source_section, difficulty_level,
                             sort_order, position, created_at, updated_at
                          )
                          VALUES (
@@ -882,7 +1254,9 @@ async function upsertCourseModuleLessons(
                             $8, $9, $10, $11,
                             $12, $13,
                             $14, $15, $16, $17, $18,
-                            $19, $19, NOW(), NOW()
+                            $19, $20, $21, $22,
+                            $23, $24, $25,
+                            $26, $26, NOW(), NOW()
                          )
                          RETURNING id`,
                         [
@@ -904,6 +1278,13 @@ async function upsertCourseModuleLessons(
                             JSON.stringify(practiceNotesJson),
                             JSON.stringify(conclusionJson),
                             JSON.stringify(additionalNotesJson),
+                            JSON.stringify(commonMistakesJson),
+                            JSON.stringify(selfCheckQuestionsJson),
+                            JSON.stringify(homeworkJson),
+                            JSON.stringify(quizJson),
+                            lesson.structured.lesson_type,
+                            lesson.structured.source_section,
+                            lesson.structured.difficulty_level,
                             maxSort,
                         ]
                     );

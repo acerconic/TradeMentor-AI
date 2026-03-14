@@ -11,7 +11,17 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 
-interface Lesson { id: string; title: string; summary: string; pdf_path: string; sort_order: number; }
+interface Lesson {
+    id: string;
+    title: string;
+    summary: string;
+    pdf_path: string;
+    sort_order: number;
+    lesson_type?: string;
+    difficulty_level?: string;
+    source_language?: string;
+    source_section?: string;
+}
 interface Module { id: string; title: string; sort_order: number; lessons?: Lesson[]; }
 interface Course {
     id: string; title: string; description: string; category: string;
@@ -167,14 +177,18 @@ export default function AdminCourses() {
         }
     };
 
-    const getSourceLanguageFromMaterial = (material: ImportedMaterial): string => {
+    const getMaterialMeta = (material: ImportedMaterial) => {
         try {
-            const meta = material.ai_metadata ? JSON.parse(material.ai_metadata) : null;
-            const source = String(meta?.source_language || '').toUpperCase();
-            return source || 'UNKNOWN';
+            return material.ai_metadata ? JSON.parse(material.ai_metadata) : null;
         } catch {
-            return 'UNKNOWN';
+            return null;
         }
+    };
+
+    const getSourceLanguageFromMaterial = (material: ImportedMaterial): string => {
+        const meta = getMaterialMeta(material);
+        const source = String(meta?.source_language || '').toUpperCase();
+        return source || 'UNKNOWN';
     };
 
     return (
@@ -386,6 +400,24 @@ export default function AdminCourses() {
                                                                             <div>
                                                                                 <p className="text-sm font-semibold text-white">{lesson.title}</p>
                                                                                 {lesson.summary && <p className="text-xs mt-0.5 line-clamp-2" style={{ color: '#7B8CA6' }}>{lesson.summary}</p>}
+                                                                                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase" style={{ background: 'rgba(123,63,228,0.2)', color: '#D8CCFF' }}>
+                                                                                        {lesson.lesson_type || 'theory'}
+                                                                                    </span>
+                                                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase" style={{ background: 'rgba(16,185,129,0.16)', color: '#6EE7B7' }}>
+                                                                                        {lesson.difficulty_level || 'Beginner'}
+                                                                                    </span>
+                                                                                    {lesson.source_language && (
+                                                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase" style={{ background: 'rgba(42,169,255,0.16)', color: '#67D5FF' }}>
+                                                                                            {lesson.source_language}
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                                {lesson.source_section && (
+                                                                                    <p className="text-[10px] mt-1 line-clamp-1" style={{ color: '#9AB1D2' }}>
+                                                                                        Source section: {lesson.source_section}
+                                                                                    </p>
+                                                                                )}
                                                                                 {lesson.pdf_path && (
                                                                                     <div className="flex items-center gap-1 mt-1">
                                                                                         <FileText size={10} style={{ color: '#7B3FE4' }} />
@@ -430,6 +462,14 @@ export default function AdminCourses() {
                                                             <div className="space-y-2">
                                                                 {(materialsByCourse[course.id] || []).map((material) => (
                                                                     <div key={material.id} className="p-3 rounded-lg" style={{ background: 'rgba(17,26,47,0.8)', border: '1px solid rgba(42,169,255,0.12)' }}>
+                                                                        {(() => {
+                                                                            const meta = getMaterialMeta(material);
+                                                                            const lessonTitles = Array.isArray(meta?.lesson_titles)
+                                                                                ? meta.lesson_titles.map((item: any) => String(item || '').trim()).filter(Boolean).slice(0, 3)
+                                                                                : [];
+
+                                                                            return (
+                                                                                <>
                                                                         <div className="flex items-center justify-between gap-3">
                                                                             <p className="text-sm font-semibold text-white truncate">{material.original_name}</p>
                                                                             <span className={cn(
@@ -445,6 +485,19 @@ export default function AdminCourses() {
                                                                             {material.detected_category && <span>Category: <strong className="text-white">{material.detected_category}</strong></span>}
                                                                             <span>{new Date(material.created_at).toLocaleString()}</span>
                                                                         </div>
+                                                                        {meta?.module_title && (
+                                                                            <p className="text-[11px] mt-2" style={{ color: '#C8D4E8' }}>
+                                                                                Module: <strong className="text-white">{String(meta.module_title)}</strong>
+                                                                            </p>
+                                                                        )}
+                                                                        {lessonTitles.length > 0 && (
+                                                                            <p className="text-[11px] mt-1 line-clamp-2" style={{ color: '#9AB1D2' }}>
+                                                                                Generated lessons: {lessonTitles.join(' · ')}
+                                                                            </p>
+                                                                        )}
+                                                                        </>
+                                                                            );
+                                                                        })()}
                                                                     </div>
                                                                 ))}
                                                             </div>
