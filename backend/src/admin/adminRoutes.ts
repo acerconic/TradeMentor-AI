@@ -112,6 +112,95 @@ export default async function adminRoutes(server: FastifyInstance) {
         }
     )
 
+    // ── POST /admin/users/:id/reset-password ───────────────────
+    server.post(
+        '/users/:id/reset-password',
+        { preValidation: [server.authenticate, requireSuperadmin] },
+        async (request: any, reply) => {
+            try {
+                const { id } = request.params as { id: string }
+
+                const userRes = await query(
+                    `SELECT id, login, role FROM users WHERE id = $1 LIMIT 1`,
+                    [id]
+                )
+                if (!userRes.rows.length) {
+                    return reply.status(404).send({ error: 'User not found' })
+                }
+
+                const target = userRes.rows[0]
+                if (target.role !== 'student') {
+                    return reply.status(400).send({ error: 'Only student password can be reset from this panel' })
+                }
+
+                const generatedPassword = generatePassword(14)
+                const passwordHash = await argon2.hash(generatedPassword)
+
+                await query(
+                    `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+                    [passwordHash, id]
+                )
+
+                await query(
+                    `INSERT INTO audit_logs (user_id, action, details)
+                     VALUES ($1, 'RESET_PASSWORD', $2)`,
+                    [request.user.id, JSON.stringify({ target_user_id: id, login: target.login })]
+                ).catch(() => null)
+
+                return {
+                    success: true,
+                    user_id: id,
+                    login: target.login,
+                    password: generatedPassword,
+                }
+            } catch (err: any) {
+                server.log.error(err)
+                return reply.status(500).send({ error: 'Failed to reset password', details: err.message })
+            }
+        }
+    )
+
+    // ── DELETE /admin/users/:id ────────────────────────────────
+    server.delete(
+        '/users/:id',
+        { preValidation: [server.authenticate, requireSuperadmin] },
+        async (request: any, reply) => {
+            try {
+                const { id } = request.params as { id: string }
+
+                if (id === request.user.id) {
+                    return reply.status(400).send({ error: 'You cannot delete your own account' })
+                }
+
+                const userRes = await query(
+                    `SELECT id, login, role FROM users WHERE id = $1 LIMIT 1`,
+                    [id]
+                )
+                if (!userRes.rows.length) {
+                    return reply.status(404).send({ error: 'User not found' })
+                }
+
+                const target = userRes.rows[0]
+                if (target.role !== 'student') {
+                    return reply.status(400).send({ error: 'Only student accounts can be deleted from this panel' })
+                }
+
+                await query(`DELETE FROM users WHERE id = $1`, [id])
+
+                await query(
+                    `INSERT INTO audit_logs (user_id, action, details)
+                     VALUES ($1, 'DELETE_USER', $2)`,
+                    [request.user.id, JSON.stringify({ deleted_user_id: id, login: target.login })]
+                ).catch(() => null)
+
+                return { success: true, deleted_user_id: id }
+            } catch (err: any) {
+                server.log.error(err)
+                return reply.status(500).send({ error: 'Failed to delete student', details: err.message })
+            }
+        }
+    )
+
     // ── GET /admin/logs ───────────────────────────────────────
     server.get(
         '/logs',
@@ -231,7 +320,8 @@ export default async function adminRoutes(server: FastifyInstance) {
                         );
 
                     if (looksLikePdf) {
-                        originalName = part.filename;
+                        const safeName = path.basename(String(part.filename || 'uploaded.pdf')).replace(/[^a-zA-Z0-9._\-()\s]/g, '_');
+                        originalName = safeName || 'uploaded.pdf';
                         filePath = path.join(uploadDir, `${Date.now()}_${originalName}`);
                         const buffer = await part.toBuffer();
                         fs.writeFileSync(filePath, buffer);

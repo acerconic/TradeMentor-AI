@@ -13,10 +13,12 @@ import {
     Sparkles,
     BookOpen,
     BarChart3,
-    Loader2
+    Loader2,
+    ExternalLink
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { useRouter } from 'next/navigation';
 
 interface Material {
     id: string;
@@ -25,6 +27,7 @@ interface Material {
     status: 'pending' | 'processed' | 'failed';
     error_message: string | null;
     course_id: string | null;
+    lesson_id: string | null;
     created_at: string;
 }
 
@@ -56,6 +59,7 @@ const StatusBadge = ({ status }: { status: Material['status'] }) => {
 };
 
 export default function ImportLibraryPage() {
+    const router = useRouter();
     const [materials, setMaterials] = useState<Material[]>([]);
     const [isLoadingMaterials, setIsLoadingMaterials] = useState(true);
     const [isScanningLibrary, setIsScanningLibrary] = useState(false);
@@ -318,19 +322,19 @@ export default function ImportLibraryPage() {
                         <table className="w-full">
                             <thead>
                                 <tr style={{ borderBottom: '1px solid rgba(123,63,228,0.15)', background: 'rgba(11,18,32,0.5)' }}>
-                                    {['File Name', 'Category', 'Status', 'Imported At'].map(h => (
+                                    {['File Name', 'Category', 'Status', 'Imported At', 'Actions'].map(h => (
                                         <th key={h} className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider" style={{ color: '#7B8CA6' }}>{h}</th>
                                     ))}
                                 </tr>
                             </thead>
                             <tbody>
                                 {isLoadingMaterials ? (
-                                    <tr><td colSpan={4} className="px-6 py-12 text-center" style={{ color: '#7B8CA6' }}>
+                                    <tr><td colSpan={5} className="px-6 py-12 text-center" style={{ color: '#7B8CA6' }}>
                                         <Loader2 size={24} className="animate-spin mx-auto mb-2" style={{ color: '#7B3FE4' }} />
                                         Loading...
                                     </td></tr>
                                 ) : materials.length === 0 ? (
-                                    <tr><td colSpan={4} className="px-6 py-16 text-center">
+                                    <tr><td colSpan={5} className="px-6 py-16 text-center">
                                         <div className="flex flex-col items-center gap-3">
                                             <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(123,63,228,0.1)' }}>
                                                 <Library size={28} style={{ color: '#7B3FE4' }} />
@@ -359,6 +363,31 @@ export default function ImportLibraryPage() {
                                         <td className="px-6 py-4"><StatusBadge status={mat.status} /></td>
                                         <td className="px-6 py-4 text-sm" style={{ color: '#7B8CA6' }}>
                                             {new Date(mat.created_at).toLocaleDateString()} {new Date(mat.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <div className="flex items-center gap-2">
+                                                {mat.course_id && (
+                                                    <button
+                                                        onClick={() => router.push('/admin/courses')}
+                                                        className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-700 text-slate-300 hover:text-white inline-flex items-center gap-1"
+                                                    >
+                                                        <BookOpen size={11} /> Course
+                                                    </button>
+                                                )}
+                                                {mat.lesson_id && (
+                                                    <button
+                                                        onClick={() => router.push(`/admin/lessons/${mat.lesson_id}`)}
+                                                        className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-700 text-slate-300 hover:text-white inline-flex items-center gap-1"
+                                                    >
+                                                        <ExternalLink size={11} /> Lesson
+                                                    </button>
+                                                )}
+                                                {mat.status === 'failed' && mat.error_message && (
+                                                    <span className="text-[11px]" style={{ color: '#F87171' }}>
+                                                        {mat.error_message}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}

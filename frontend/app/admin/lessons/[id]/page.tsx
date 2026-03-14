@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { api } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, FileText, Loader2, ChevronRight, ExternalLink } from 'lucide-react';
+import { ArrowLeft, FileText, Loader2, ChevronRight, ExternalLink, Trash2 } from 'lucide-react';
 
 type LessonDetails = {
   id: string;
@@ -81,6 +81,19 @@ export default function AdminLessonPage({ params }: { params: { id: string } }) 
 
   const title = useMemo(() => lesson?.title || 'Lesson', [lesson]);
 
+  const handleDeleteLesson = async () => {
+    if (!lesson) return;
+    if (!confirm(`Delete lesson "${lesson.title}"?`)) return;
+
+    try {
+      await api.delete(`/admin/courses/lessons/${lesson.id}`);
+      showToast('Lesson deleted');
+      setTimeout(() => router.push('/admin/courses'), 500);
+    } catch (e: any) {
+      showToast(e.response?.data?.error || 'Failed to delete lesson');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <AnimatePresence>
@@ -107,6 +120,15 @@ export default function AdminLessonPage({ params }: { params: { id: string } }) 
         </button>
 
         <div className="flex items-center gap-2">
+          {lesson?.id && (
+            <button
+              onClick={handleDeleteLesson}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all"
+              style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#F87171' }}
+            >
+              <Trash2 size={14} /> Delete lesson
+            </button>
+          )}
           {lesson?.course_id && (
             <button
               onClick={() => router.push(`/dashboard/courses/${lesson.course_id}`)}

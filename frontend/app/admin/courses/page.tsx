@@ -133,6 +133,25 @@ export default function AdminCourses() {
         }
     };
 
+    const handleDeleteLesson = async (lessonId: string, lessonTitle: string, courseId: string) => {
+        if (!confirm(`Delete lesson "${lessonTitle}"?`)) return;
+        try {
+            await api.delete(`/admin/courses/lessons/${lessonId}`);
+            showToast('Lesson deleted');
+
+            // Refresh expanded course structure and counters
+            const [modulesRes, coursesRes] = await Promise.all([
+                api.get(`/courses/${courseId}/lessons`),
+                api.get('/admin/courses'),
+            ]);
+
+            setCourseModules(prev => ({ ...prev, [courseId]: modulesRes.data || [] }));
+            setCourses(coursesRes.data || []);
+        } catch (e: any) {
+            showToast(e.response?.data?.error || 'Failed to delete lesson', false);
+        }
+    };
+
     const filtered = courses.filter(c =>
         c.title.toLowerCase().includes(search.toLowerCase()) ||
         (c.category || '').toLowerCase().includes(search.toLowerCase())
@@ -364,6 +383,16 @@ export default function AdminCourses() {
                                                                                     </div>
                                                                                 )}
                                                                             </div>
+                                                                            <button
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    handleDeleteLesson(lesson.id, lesson.title, course.id);
+                                                                                }}
+                                                                                className="ml-auto p-2 rounded-lg text-red-400 hover:bg-red-400/10 transition-colors"
+                                                                                title="Delete lesson"
+                                                                            >
+                                                                                <Trash2 size={14} />
+                                                                            </button>
                                                                         </button>
                                                                     ))}
                                                                 </div>

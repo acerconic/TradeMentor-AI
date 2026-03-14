@@ -14,7 +14,9 @@ import {
     Check,
     UserPlus,
     Loader2,
-    Shield
+    Shield,
+    RotateCcw,
+    Trash2
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -33,6 +35,7 @@ export default function StudentsPage() {
     const [createdCredentials, setCreatedCredentials] = useState<any>(null);
     const [copied, setCopied] = useState(false);
     const [toastMessage, setToastMessage] = useState<string | null>(null);
+    const [resetCredentials, setResetCredentials] = useState<{ login: string; password: string } | null>(null);
     const router = useRouter();
 
     const showToast = (msg: string) => {
@@ -83,6 +86,38 @@ export default function StudentsPage() {
         u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         u.login.toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    const handleResetPassword = async (user: any) => {
+        if (user.role !== 'student') {
+            showToast('Only students can be reset here');
+            return;
+        }
+        if (!confirm(`Reset password for ${user.login}?`)) return;
+
+        try {
+            const res = await api.post(`/admin/users/${user.id}/reset-password`);
+            setResetCredentials({ login: res.data.login, password: res.data.password });
+            showToast('Password reset successfully');
+        } catch (e: any) {
+            showToast(e.response?.data?.error || 'Failed to reset password');
+        }
+    };
+
+    const handleDeleteStudent = async (user: any) => {
+        if (user.role !== 'student') {
+            showToast('Only student accounts can be deleted here');
+            return;
+        }
+        if (!confirm(`Delete student ${user.login}? This action cannot be undone.`)) return;
+
+        try {
+            await api.delete(`/admin/users/${user.id}`);
+            showToast('Student deleted');
+            setUsers(prev => prev.filter(u => u.id !== user.id));
+        } catch (e: any) {
+            showToast(e.response?.data?.error || 'Failed to delete student');
+        }
+    };
 
     return (
         <div className="space-y-8">
@@ -208,6 +243,20 @@ export default function StudentsPage() {
                                                 className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-700 text-slate-300 hover:text-white inline-flex items-center gap-1"
                                             >
                                                 <Shield size={12} /> Logs
+                                            </button>
+                                            <button
+                                                onClick={() => handleResetPassword(user)}
+                                                disabled={user.role !== 'student'}
+                                                className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-700 text-amber-300 hover:text-amber-200 inline-flex items-center gap-1 disabled:opacity-40"
+                                            >
+                                                <RotateCcw size={12} /> Reset
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteStudent(user)}
+                                                disabled={user.role !== 'student'}
+                                                className="px-2.5 py-1.5 text-xs rounded-lg border border-red-500/30 text-red-400 hover:text-red-300 inline-flex items-center gap-1 disabled:opacity-40"
+                                            >
+                                                <Trash2 size={12} /> Delete
                                             </button>
                                         </div>
                                     </td>
@@ -349,6 +398,56 @@ export default function StudentsPage() {
                                     </div>
                                 </div>
                             )}
+                        </motion.div>
+                    </div>
+                )}
+
+                {resetCredentials && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setResetCredentials(null)}
+                            className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+                        />
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="relative w-full max-w-md glass-card p-8 space-y-6"
+                        >
+                            <h2 className="text-2xl font-bold text-white">Temporary Password</h2>
+                            <p className="text-sm text-slate-400">Share this password with the student. It is shown only once.</p>
+
+                            <div className="bg-slate-900 border border-amber-500/30 p-4 rounded-xl space-y-3 text-left">
+                                <div>
+                                    <label className="text-xs uppercase font-bold text-slate-500">Login ID</label>
+                                    <p className="text-white font-mono text-lg">{resetCredentials.login}</p>
+                                </div>
+                                <div>
+                                    <label className="text-xs uppercase font-bold text-slate-500">New Temporary Password</label>
+                                    <p className="text-white font-mono text-lg">{resetCredentials.password}</p>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(`Login: ${resetCredentials.login}\nPassword: ${resetCredentials.password}`);
+                                        showToast('Credentials copied');
+                                    }}
+                                    className="flex-1 flex items-center justify-center py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl transition-all"
+                                >
+                                    <Copy size={18} className="mr-2" /> Copy Info
+                                </button>
+                                <button
+                                    onClick={() => setResetCredentials(null)}
+                                    className="flex-1 py-3 bg-primary text-white font-bold rounded-xl"
+                                >
+                                    Done
+                                </button>
+                            </div>
                         </motion.div>
                     </div>
                 )}

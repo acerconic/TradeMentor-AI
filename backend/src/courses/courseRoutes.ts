@@ -101,6 +101,36 @@ export async function ensureSchema(server: FastifyInstance) {
         `UPDATE system_state
          SET value = CONCAT('deploy:', EXTRACT(EPOCH FROM NOW())::bigint), updated_at = NOW()
          WHERE key = 'update_banner_token'`,
+        // Ensure audit_action enum contains admin maintenance actions
+        `DO $$
+         BEGIN
+           IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'audit_action') THEN
+             IF NOT EXISTS (
+               SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+               WHERE t.typname = 'audit_action' AND e.enumlabel = 'RESET_PASSWORD'
+             ) THEN
+               ALTER TYPE audit_action ADD VALUE 'RESET_PASSWORD';
+             END IF;
+             IF NOT EXISTS (
+               SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+               WHERE t.typname = 'audit_action' AND e.enumlabel = 'DELETE_USER'
+             ) THEN
+               ALTER TYPE audit_action ADD VALUE 'DELETE_USER';
+             END IF;
+             IF NOT EXISTS (
+               SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+               WHERE t.typname = 'audit_action' AND e.enumlabel = 'DELETE_COURSE'
+             ) THEN
+               ALTER TYPE audit_action ADD VALUE 'DELETE_COURSE';
+             END IF;
+             IF NOT EXISTS (
+               SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+               WHERE t.typname = 'audit_action' AND e.enumlabel = 'DELETE_LESSON'
+             ) THEN
+               ALTER TYPE audit_action ADD VALUE 'DELETE_LESSON';
+             END IF;
+           END IF;
+         END $$`,
         // Ensure uploaded_materials exists
         `CREATE TABLE IF NOT EXISTS uploaded_materials (
             id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -222,12 +252,58 @@ export async function adminCourseRoutes(server: FastifyInstance) {
     server.delete('/:id', { preValidation: [server.authenticate, requireSuperadmin] }, async (request: any, reply) => {
         try {
             const { id } = request.params as { id: string }
+            const courseRes = await query(`SELECT id, title FROM courses WHERE id = $1 LIMIT 1`, [id])
+            if (!courseRes.rows.length) {
+                return reply.status(404).send({ error: 'Course not found' })
+            }
+
             await query(`DELETE FROM courses WHERE id = $1`, [id])
+
+            await query(
+                `INSERT INTO audit_logs (user_id, action, details)
+                 VALUES ($1, 'DELETE_COURSE', $2)`,
+                [request.user.id, JSON.stringify({ course_id: id, title: courseRes.rows[0].title })]
+            ).catch(() => null)
+
             try { await touchSystemUpdateToken('course_deleted') } catch { /* ignore */ }
             return { success: true }
         } catch (e: any) {
             server.log.error(`[Courses] Delete error: ${e.message}`)
             return reply.status(500).send({ error: 'Failed to delete course' })
+        }
+    })
+
+    // DELETE /admin/courses/lessons/:lessonId
+    server.delete('/lessons/:lessonId', { preValidation: [server.authenticate, requireSuperadmin] }, async (request: any, reply) => {
+        try {
+            const { lessonId } = request.params as { lessonId: string }
+
+            const lessonRes = await query(
+                `SELECT l.id, l.title, l.module_id, m.course_id
+                 FROM lessons l
+                 JOIN modules m ON m.id = l.module_id
+                 WHERE l.id = $1
+                 LIMIT 1`,
+                [lessonId]
+            )
+            if (!lessonRes.rows.length) {
+                return reply.status(404).send({ error: 'Lesson not found' })
+            }
+
+            const lesson = lessonRes.rows[0]
+            await query(`DELETE FROM lessons WHERE id = $1`, [lessonId])
+
+            await query(
+                `INSERT INTO audit_logs (user_id, action, details)
+                 VALUES ($1, 'DELETE_LESSON', $2)`,
+                [request.user.id, JSON.stringify({ lesson_id: lessonId, title: lesson.title, course_id: lesson.course_id })]
+            ).catch(() => null)
+
+            try { await touchSystemUpdateToken('lesson_deleted') } catch { /* ignore */ }
+            return { success: true, course_id: lesson.course_id, module_id: lesson.module_id }
+        } catch (e: any) {
+            server.log.error(`[Courses] Lesson delete error: ${e.message}`)
+            return reply.status(500).send({ error: 'Failed to delete lesson', details: e.message })
         }
     })
 }
