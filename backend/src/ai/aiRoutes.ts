@@ -108,6 +108,7 @@ export default async function aiRoutes(server: FastifyInstance) {
                                     l.common_mistakes_json,
                                     l.self_check_questions_json,
                                     l.homework_json,
+                                    l.lesson_pages_json,
                                     l.lesson_steps_json,
                                     l.visual_blocks_json,
                                     l.lesson_test_json,
@@ -174,6 +175,19 @@ export default async function aiRoutes(server: FastifyInstance) {
                                     .join(' | ')
                                 : ''
 
+                            const lessonPagesRaw = pickLocalized(row.lesson_pages_json)
+                            const lessonPages = Array.isArray(lessonPagesRaw)
+                                ? lessonPagesRaw
+                                    .slice(0, 4)
+                                    .map((page: any) => {
+                                        const pageNum = Number(page?.page_number ?? page?.page ?? 0) || 0
+                                        const pageText = String(page?.page_text || '').replace(/\s+/g, ' ').substring(0, 140)
+                                        const pageExplain = String(page?.ai_explanation || '').replace(/\s+/g, ' ').substring(0, 140)
+                                        return `p${pageNum}: ${pageText} | ${pageExplain}`
+                                    })
+                                    .join(' | ')
+                                : ''
+
                             const visualBlocksRaw = Array.isArray(row.visual_blocks_json) ? row.visual_blocks_json : []
                             const visualBlocks = visualBlocksRaw
                                 .slice(0, 3)
@@ -203,6 +217,7 @@ Current lesson context:
 - Common mistakes: ${mistakes}
 - Self-check questions: ${selfCheck}
 - Homework: ${homeworkText}
+- Lesson pages: ${lessonPages}
 - Lesson steps: ${lessonSteps}
 - Visual blocks: ${visualBlocks}
 - Lesson test: ${lessonTestInfo}

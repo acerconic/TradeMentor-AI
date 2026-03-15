@@ -54,6 +54,17 @@ interface QuizItem {
     explanation: string;
 }
 
+interface LessonPageBlock {
+    page_number: number;
+    page_image?: string;
+    page_text: string;
+    ai_explanation: string;
+    notes?: string;
+    practical_interpretation?: string;
+    key_terms?: string[];
+    common_mistakes?: string[];
+}
+
 interface LessonStepBlock {
     step_index?: number;
     step_id: string;
@@ -109,6 +120,8 @@ interface StructuredLessonContent {
     homework_uz: string;
     quiz_ru: QuizItem[];
     quiz_uz: QuizItem[];
+    lesson_pages_ru: LessonPageBlock[];
+    lesson_pages_uz: LessonPageBlock[];
     lesson_steps_ru: LessonStepBlock[];
     lesson_steps_uz: LessonStepBlock[];
     visual_blocks: VisualBlockItem[];
@@ -913,10 +926,10 @@ function buildPageWindow(totalPages: number, lessonIndex: number, totalLessons: 
 function pickPageFragments(pageFragments: PdfPageFragment[], pageFrom: number, pageTo: number): PdfPageFragment[] {
     const relevant = (pageFragments || [])
         .filter((item) => item.page >= pageFrom && item.page <= pageTo)
-        .slice(0, 4);
+        .slice(0, 12);
 
     if (relevant.length > 0) return relevant;
-    return (pageFragments || []).slice(0, 2);
+    return (pageFragments || []).slice(0, 6);
 }
 
 function pickVisualCandidates(pageFragments: PdfPageFragment[], pageFrom: number, pageTo: number): PdfPageFragment[] {
@@ -973,6 +986,164 @@ function collectShortStepExplanations(
                 language,
                 step_id: String(step?.step_id || `step_${index + 1}`),
                 step_index: Number.isInteger(Number(step?.step_index)) ? Math.max(1, Number(step.step_index)) : index + 1,
+                length: text.length,
+            };
+        })
+        .filter((item) => item.length < minLength);
+}
+
+function normalizeLessonPages(
+    raw: any,
+    defaultLanguage: 'RU' | 'UZ',
+    fallbackPageFrom: number,
+    fallbackPageTo: number,
+    pageFragments: PdfPageFragment[]
+): LessonPageBlock[] {
+    if (!Array.isArray(raw)) return [];
+
+    const fragmentByPage = new Map<number, PdfPageFragment>();
+    for (const fragment of pageFragments || []) {
+        const page = Math.max(1, Number(fragment.page) || 1);
+        if (!fragmentByPage.has(page)) fragmentByPage.set(page, fragment);
+    }
+
+    const explanationFallback = defaultLanguage === 'UZ'
+        ? 'Bu sahifadagi tushunchalar bozor mantiqi bilan bosqichma-bosqich ochib beriladi. Signalni kontekst, likvidlik va tasdiq orqali o‘qing.'
+        : 'На этой странице ключевые идеи раскрываются через рыночную логику. Читайте сигнал через контекст, ликвидность и подтверждение.';
+
+    const normalized = raw
+        .map((item: any, index: number) => {
+            const pageRaw = Number(item?.page_number ?? item?.page ?? item?.page_from);
+            const fallbackPage = Math.min(
+                Math.max(1, fallbackPageFrom + index),
+                Math.max(fallbackPageFrom, fallbackPageTo)
+            );
+            const page_number = Number.isInteger(pageRaw)
+                ? Math.max(1, Math.min(5000, pageRaw))
+                : fallbackPage;
+
+            const fragment = fragmentByPage.get(page_number);
+            const page_text = sanitizeSummary(
+                String(item?.page_text || item?.source_excerpt || fragment?.excerpt || ''),
+                '',
+                1800
+            );
+            const ai_explanation = sanitizeSummary(
+                String(item?.ai_explanation || item?.explanation || ''),
+                explanationFallback,
+                6200
+            );
+
+            const notesRaw = Array.isArray(item?.notes)
+                ? item.notes.slice(0, 8).map((part: any) => String(part || '').trim()).filter(Boolean).join(' | ')
+                : String(item?.notes || item?.what_to_notice || '');
+
+            const practical_interpretation = sanitizeSummary(
+                String(item?.practical_interpretation || item?.practical_application || ''),
+                '',
+                2400
+            );
+
+            const key_terms = normalizeStringArray(item?.key_terms, 8);
+            const common_mistakes = normalizeStringArray(item?.common_mistakes, 6);
+
+            return {
+                page_number,
+                page_image: sanitizeSummary(String(item?.page_image || `page:${page_number}`), `page:${page_number}`, 180),
+                page_text,
+                ai_explanation,
+                notes: sanitizeSummary(notesRaw, '', 1100),
+                practical_interpretation,
+                key_terms,
+                common_mistakes,
+            } as LessonPageBlock;
+        })
+        .filter((item: LessonPageBlock) => item.page_number >= 1 && item.ai_explanation)
+        .sort((a: LessonPageBlock, b: LessonPageBlock) => a.page_number - b.page_number);
+
+    const unique: LessonPageBlock[] = [];
+    const seenPages = new Set<number>();
+    for (const item of normalized) {
+        if (seenPages.has(item.page_number)) continue;
+        seenPages.add(item.page_number);
+        unique.push(item);
+        if (unique.length >= 14) break;
+    }
+
+    return unique;
+}
+
+function buildFallbackLessonPages(
+    language: 'RU' | 'UZ',
+    summary: string,
+    content: string,
+    keyPoints: string[],
+    practice: string,
+    commonMistakes: string[],
+    pageFragments: PdfPageFragment[],
+    pageWindow: { page_from: number; page_to: number }
+): LessonPageBlock[] {
+    const inRange = (pageFragments || [])
+        .filter((item) => item.page >= pageWindow.page_from && item.page <= pageWindow.page_to)
+        .sort((a, b) => Number(a.page) - Number(b.page));
+
+    const selected = inRange.length > 0
+        ? inRange.slice(0, 10)
+        : [{ page: pageWindow.page_from, excerpt: summary || content, has_visual_hints: false } as PdfPageFragment];
+
+    return selected.map((fragment, index) => {
+        const page = Math.max(1, Number(fragment.page) || pageWindow.page_from);
+        const keyPoint = keyPoints[index % Math.max(1, keyPoints.length)] || keyPoints[0] || '';
+        const commonMistake = commonMistakes[index % Math.max(1, commonMistakes.length)] || commonMistakes[0] || '';
+
+        const ai_explanation = sanitizeSummary(
+            language === 'UZ'
+                ? `1️⃣ Bu sahifada asosiy g‘oya bozor konteksti ichida ochiladi: narx qayerda bosim yig‘adi va qayerda qaror nuqtasi hosil bo‘ladi. 2️⃣ Smart Money odatda likvidlik turgan zonaga narxni olib boradi, keyin tasdiq signalidan keyin harakatni davom ettiradi. Shu sababli sahifadagi har bir triggerni kontekstdan ajratmasdan o‘qing. 3️⃣ Amaliyotda bu modelni chartga ko‘chirayotganda kirishdan oldin invalidation va risk limitini yozib chiqing; impulsdan keyin quvish eng ko‘p uchraydigan xatodir. 4️⃣ Yangi boshlovchi odatda ${commonMistake || 'tasdiqsiz kirish'} tufayli xato qiladi. Har safar setupni tekshirish uchun mini-checklistdan foydalaning: kontekst, likvidlik, tasdiq, risk, target.`
+                : `1️⃣ На этой странице ключевая идея раскрывается через контекст: где цена накапливает давление и где формируется точка решения. 2️⃣ Логика Smart Money обычно строится так: цена подводится к зоне ликвидности, затем после подтверждения запускается движение. Поэтому любой триггер на странице нужно читать только вместе с контекстом. 3️⃣ При переносе модели на график сначала фиксируйте invalidation и лимит риска; входы на эмоции после импульса чаще всего заканчиваются ошибкой. 4️⃣ Новичок обычно теряет деньги из-за ошибки "${commonMistake || 'вход без подтверждения'}". Используйте чеклист: контекст, ликвидность, подтверждение, риск, цель.`,
+            '',
+            6200
+        );
+
+        const notes = sanitizeSummary(
+            language === 'UZ'
+                ? `${keyPoint || 'Signalni kontekst bilan baholang.'} | Likvidlik joylashuvini belgilang. | Tasdiqdan oldin kirish qilmang.`
+                : `${keyPoint || 'Оценивайте сигнал в контексте.'} | Отмечайте зону ликвидности. | Не входите до подтверждения.`,
+            '',
+            1100
+        );
+
+        const practical_interpretation = sanitizeSummary(
+            language === 'UZ'
+                ? `1. Chartda sahifadagi setupga o‘xshash kontekstni toping. 2. Likvidlik olinishi va tasdiq triggerini kuting. 3. Triggerdan keyin kirish nuqtasini belgilang. 4. Invalidation ostiga stop qo‘ying. 5. R:R >= 1:2 bo‘lsa targetni tasdiqlang.`
+                : '1. Найдите на графике контекст, похожий на модель со страницы. 2. Дождитесь снятия ликвидности и подтверждающего триггера. 3. После триггера определите точку входа. 4. Поставьте стоп за invalidation. 5. Подтвердите цель при R:R не ниже 1:2.',
+            '',
+            2400
+        );
+
+        return {
+            page_number: page,
+            page_image: `page:${page}`,
+            page_text: sanitizeSummary(fragment.excerpt || summary || content, summary || content, 1800),
+            ai_explanation,
+            notes,
+            practical_interpretation,
+            key_terms: keyPoints.slice(0, 5),
+            common_mistakes: commonMistakes.slice(0, 4),
+        } as LessonPageBlock;
+    });
+}
+
+function collectShortPageExplanations(
+    pages: LessonPageBlock[],
+    language: 'RU' | 'UZ',
+    minLength = 900
+): Array<{ language: 'RU' | 'UZ'; page_number: number; length: number }> {
+    return (pages || [])
+        .map((item) => {
+            const text = String(item?.ai_explanation || '').replace(/\s+/g, ' ').trim();
+            return {
+                language,
+                page_number: Math.max(1, Number(item?.page_number) || 1),
                 length: text.length,
             };
         })
@@ -1424,41 +1595,29 @@ function buildVisualBlocks(
     return blocks.slice(0, 8);
 }
 
-const LESSON_STEP_MENTOR_SYSTEM_PROMPT = `Ты — элитный AI-наставник по трейдингу и аналитик Smart Money.
-Твоя задача — писать ai_explanation для шагов урока так, как объясняют в дорогих приватных трейдерских сообществах.
+const LESSON_PAGE_MENTOR_SYSTEM_PROMPT = `Ты — элитный AI-наставник по трейдингу и аналитик Smart Money.
+Твоя задача — создать lesson в формате page-by-page reading experience: каждая страница книги получает отдельный глубокий AI-разбор.
 
-Критические требования к ai_explanation для каждого шага:
-1) Запрещено писать коротко: объяснение должно быть длинным, глубоким и практическим.
-2) Минимум 3-4 крупных абзаца и не менее 1200 символов на каждый ai_explanation.
-3) Обязательно раскрывай:
-   - механику движения цены,
-   - логику крупного капитала,
-   - где находится ликвидность,
-   - где ловушки для толпы.
-4) Используй структуру из 5 блоков:
-   1️⃣ Суть концепта
-   2️⃣ Глубокая механика Smart Money
-   3️⃣ Простая аналогия из жизни
-   4️⃣ Ловушки для толпы
-   5️⃣ Как читать это на графике
-5) Используй маркеры по смыслу:
-   - 🔥 сильные инсайты,
-   - 🧠 логика рынка,
-   - 💡 ключевые идеи,
-   - ⚠️ ловушки новичков.
-6) Ключевые термины выделяй **жирным**.
-7) notes пиши как 3-6 коротких практических пунктов.
-8) practical_interpretation пиши как реальный алгоритм 1-5:
-   1. что искать на графике
-   2. как подтвердить сигнал
-   3. где вход
-   4. где стоп
-   5. где цель
+Критические требования к каждому page block:
+1) ai_explanation не должен быть коротким: минимум 3-4 крупных абзаца.
+2) Обязательно раскрывай механику цены, логику крупного капитала, ликвидность и ловушки толпы.
+3) Разбор каждой страницы должен включать:
+   - что происходит на странице,
+   - главную идею,
+   - термины,
+   - скрытую механику,
+   - практическое применение,
+   - типичные ошибки новичков.
+4) Используй осмысленные акценты: 🧠 💡 ⚠️ 📌 🔥 (умеренно, без спама).
+5) Сохраняй формат наставника: профессионально, спокойно, понятно, практично.
+6) Для notes давай 3-6 коротких практических пунктов.
+7) Для practical_interpretation давай реальный алгоритм 1-5 (setup, confirmation, entry, stop, target).
 
-Важно:
-- Для lesson_steps_ru пиши на русском.
-- Для lesson_steps_uz пиши на узбекском (Latin).
-- Верни только валидный JSON согласно запрошенной схеме.`;
+Язык:
+- lesson_pages_ru полностью на русском.
+- lesson_pages_uz полностью на узбекском (Latin).
+
+Верни только валидный JSON согласно запрошенной схеме.`;
 
 async function generateStructuredLessonContent(
     lesson: LessonPlanItem,
@@ -1526,8 +1685,8 @@ Return ONLY valid JSON with this shape:
   "homework_uz": "homework in Uzbek",
   "quiz_ru": [{"question":"...", "options":["..."], "correct_index":0, "explanation":"..."}],
   "quiz_uz": [{"question":"...", "options":["..."], "correct_index":0, "explanation":"..."}],
-  "lesson_steps_ru": [{"step_index":1,"step_id":"step_intro","step_type":"intro|visual|concept|practice|mistakes|takeaway|quiz|next","title":"...","page_image":"page:1","page_text":"...","ai_explanation":"...","notes":"...","practical_interpretation":"...","source_excerpt":"...","explanation":"...","what_to_notice":"...","visual_hint":"...","page_from":1,"page_to":2}],
-  "lesson_steps_uz": [{"step_index":1,"step_id":"step_intro","step_type":"intro|visual|concept|practice|mistakes|takeaway|quiz|next","title":"...","page_image":"page:1","page_text":"...","ai_explanation":"...","notes":"...","practical_interpretation":"...","source_excerpt":"...","explanation":"...","what_to_notice":"...","visual_hint":"...","page_from":1,"page_to":2}],
+  "lesson_pages_ru": [{"page_number":1,"page_image":"page:1","page_text":"...","ai_explanation":"...","notes":"...","practical_interpretation":"...","key_terms":["..."],"common_mistakes":["..."]}],
+  "lesson_pages_uz": [{"page_number":1,"page_image":"page:1","page_text":"...","ai_explanation":"...","notes":"...","practical_interpretation":"...","key_terms":["..."],"common_mistakes":["..."]}],
   "conclusion_ru": "lesson conclusion in Russian",
   "conclusion_uz": "lesson conclusion in Uzbek",
   "additional_ru": "optional useful clarifications in Russian",
@@ -1546,25 +1705,13 @@ Rules:
 - Fill self-check with at least 3 questions.
 - Fill quiz with 3-7 questions.
 - content_ru and content_uz should be deep enough to teach the full lesson, not a short note.
-- lesson_steps_ru and lesson_steps_uz must each have 9 steps and follow this order:
-  1) intro
-  2) visual (fragment A)
-  3) visual (fragment B)
-  4) concept
-  5) practice
-  6) mistakes
-  7) takeaway
-  8) quiz
-  9) next
-- For both visual steps: include page_from/page_to and visual_hint linked to page candidates when possible.
-- For every step include: step_index, page_image, page_text, ai_explanation, notes, practical_interpretation.
-- page_image can be "page:<number>" when there is no extracted bitmap file.
-- If explicit images are missing, still produce page-fragment visual steps using available page context.
-- ai_explanation in every step must follow the 5-part mentor structure from the system prompt.
-- ai_explanation must be long (minimum 3-4 large paragraphs), deep, and never a short note.
-- ai_explanation for every step must be at least 1200 characters after trimming.
-- ai_explanation must explain Smart Money mechanics, liquidity logic, institutional intent, and crowd traps.
-- notes must contain 3-6 practical bullets (RU for lesson_steps_ru, UZ Latin for lesson_steps_uz).
+- lesson_pages_ru and lesson_pages_uz must contain page-by-page blocks sorted by page_number.
+- Use 3-12 page blocks per lesson (based on available page hints for this lesson range).
+- Every page_number must be unique.
+- For every page block include: page_number, page_image, page_text, ai_explanation, notes, practical_interpretation, key_terms, common_mistakes.
+- page_image must reference its page: "page:<page_number>" when explicit image path is unavailable.
+- ai_explanation for every page must be detailed (3-4+ large paragraphs) and at least 900 characters.
+- notes must contain 3-6 practical bullets (RU for lesson_pages_ru, UZ Latin for lesson_pages_uz).
 - practical_interpretation must be a numbered 1-5 trading algorithm: setup, confirmation, entry, stop, target.`;
 
     const models = [
@@ -1572,7 +1719,7 @@ Rules:
         'meta-llama/llama-3.1-70b-instruct',
         'meta-llama/llama-3.1-8b-instruct:free',
     ];
-    const minStepExplanationChars = 1200;
+    const minPageExplanationChars = 900;
     const maxGenerationAttemptsPerModel = 2;
 
     let lastError = '';
@@ -1580,11 +1727,11 @@ Rules:
         for (let attempt = 1; attempt <= maxGenerationAttemptsPerModel; attempt++) {
             try {
                 const regenerationTail = attempt > 1
-                    ? `\n\nREGENERATION MODE: previous output was too short or invalid.\nRegenerate the FULL JSON.\nHard requirement: every ai_explanation in lesson_steps_ru and lesson_steps_uz must be >= ${minStepExplanationChars} characters after trimming.`
+                    ? `\n\nREGENERATION MODE: previous output was too short or invalid.\nRegenerate the FULL JSON.\nHard requirement: every ai_explanation in lesson_pages_ru and lesson_pages_uz must be >= ${minPageExplanationChars} characters after trimming.`
                     : '';
 
                 const data = await openRouterService.chat(model, [
-                    { role: 'system', content: LESSON_STEP_MENTOR_SYSTEM_PROMPT },
+                    { role: 'system', content: LESSON_PAGE_MENTOR_SYSTEM_PROMPT },
                     { role: 'user', content: `${prompt}${regenerationTail}` }
                 ], undefined, { temperature: 0.9, max_tokens: 3000 });
 
@@ -1671,6 +1818,65 @@ Rules:
                 const rememberRu = [conclusionRu, additionalRu, keyPointsRu.slice(0, 2).join(' | ')].filter(Boolean).join(' ');
                 const rememberUz = [conclusionUz, additionalUz, keyPointsUz.slice(0, 2).join(' | ')].filter(Boolean).join(' ');
 
+                const minPageBlocks = Math.max(
+                    1,
+                    Math.min(
+                        3,
+                        Math.max(lessonPageFragments.length, Math.max(1, pageWindow.page_to - pageWindow.page_from + 1))
+                    )
+                );
+
+                const lessonPagesRuRaw = normalizeLessonPages(
+                    parsed?.lesson_pages_ru,
+                    'RU',
+                    pageWindow.page_from,
+                    pageWindow.page_to,
+                    lessonPageFragments
+                );
+                const lessonPagesUzRaw = normalizeLessonPages(
+                    parsed?.lesson_pages_uz,
+                    'UZ',
+                    pageWindow.page_from,
+                    pageWindow.page_to,
+                    lessonPageFragments
+                );
+
+                const lessonPagesRu = lessonPagesRuRaw.length >= minPageBlocks
+                    ? lessonPagesRuRaw
+                    : buildFallbackLessonPages(
+                        'RU',
+                        summaryRu,
+                        contentRu,
+                        keyPointsRu,
+                        practiceRu,
+                        commonMistakesRu,
+                        lessonPageFragments,
+                        pageWindow
+                    );
+
+                const lessonPagesUz = lessonPagesUzRaw.length >= minPageBlocks
+                    ? lessonPagesUzRaw
+                    : buildFallbackLessonPages(
+                        'UZ',
+                        summaryUz,
+                        contentUz,
+                        keyPointsUz,
+                        practiceUz,
+                        commonMistakesUz,
+                        lessonPageFragments,
+                        pageWindow
+                    );
+
+                const shortPagesRu = collectShortPageExplanations(lessonPagesRu, 'RU', minPageExplanationChars);
+                const shortPagesUz = collectShortPageExplanations(lessonPagesUz, 'UZ', minPageExplanationChars);
+                if (shortPagesRu.length > 0 || shortPagesUz.length > 0) {
+                    const details = [...shortPagesRu, ...shortPagesUz]
+                        .slice(0, 16)
+                        .map((item) => `${item.language}#page${item.page_number}:${item.length}`)
+                        .join(', ');
+                    throw new Error(`page ai_explanation too short (<${minPageExplanationChars}) for pages: ${details}`);
+                }
+
                 const lessonStepsRuRaw = normalizeLessonSteps(parsed?.lesson_steps_ru, 'RU', pageWindow.page_from, pageWindow.page_to);
                 const lessonStepsUzRaw = normalizeLessonSteps(parsed?.lesson_steps_uz, 'UZ', pageWindow.page_from, pageWindow.page_to);
 
@@ -1711,16 +1917,6 @@ Rules:
                 const lessonStepsRu = enrichStepBlocksForStorage(lessonStepsRuBase, 'RU');
                 const lessonStepsUz = enrichStepBlocksForStorage(lessonStepsUzBase, 'UZ');
 
-                const shortRu = collectShortStepExplanations(lessonStepsRu, 'RU', minStepExplanationChars);
-                const shortUz = collectShortStepExplanations(lessonStepsUz, 'UZ', minStepExplanationChars);
-                if (shortRu.length > 0 || shortUz.length > 0) {
-                    const details = [...shortRu, ...shortUz]
-                        .slice(0, 12)
-                        .map((item) => `${item.language}#${item.step_index}:${item.step_id}:${item.length}`)
-                        .join(', ');
-                    throw new Error(`ai_explanation too short (<${minStepExplanationChars}) for steps: ${details}`);
-                }
-
                 const visualBlocks = buildVisualBlocks(lessonStepsRu, lessonStepsUz, visualCandidates);
 
                 return {
@@ -1746,6 +1942,8 @@ Rules:
                     homework_uz: homeworkUz,
                     quiz_ru: quizRu,
                     quiz_uz: quizUz,
+                    lesson_pages_ru: lessonPagesRu,
+                    lesson_pages_uz: lessonPagesUz,
                     lesson_steps_ru: lessonStepsRu,
                     lesson_steps_uz: lessonStepsUz,
                     visual_blocks: visualBlocks,
@@ -1931,6 +2129,10 @@ async function upsertCourseModuleLessons(
                 RU: lesson.structured.quiz_ru,
                 UZ: lesson.structured.quiz_uz,
             };
+            const lessonPagesJson = {
+                RU: lesson.structured.lesson_pages_ru,
+                UZ: lesson.structured.lesson_pages_uz,
+            };
             const lessonStepsJson = {
                 RU: lesson.structured.lesson_steps_ru,
                 UZ: lesson.structured.lesson_steps_uz,
@@ -1971,16 +2173,17 @@ async function upsertCourseModuleLessons(
                              self_check_questions_json = $15,
                              homework_json = $16,
                              quiz_json = $17,
-                             lesson_steps_json = $18,
-                             visual_blocks_json = $19,
-                             lesson_test_json = $20,
-                             lesson_type = $21,
-                             source_section = $22,
-                             difficulty_level = $23,
-                             conclusion_json = $24,
-                             additional_notes_json = $25,
+                             lesson_pages_json = $18,
+                             lesson_steps_json = $19,
+                             visual_blocks_json = $20,
+                             lesson_test_json = $21,
+                             lesson_type = $22,
+                             source_section = $23,
+                             difficulty_level = $24,
+                             conclusion_json = $25,
+                             additional_notes_json = $26,
                              updated_at = NOW()
-                         WHERE id = $26`,
+                         WHERE id = $27`,
                         [
                             content,
                             summary,
@@ -1999,6 +2202,7 @@ async function upsertCourseModuleLessons(
                             JSON.stringify(selfCheckQuestionsJson),
                             JSON.stringify(homeworkJson),
                             JSON.stringify(quizJson),
+                            JSON.stringify(lessonPagesJson),
                             JSON.stringify(lessonStepsJson),
                             JSON.stringify(visualBlocksJson),
                             JSON.stringify(lessonTestJson),
@@ -2028,7 +2232,7 @@ async function upsertCourseModuleLessons(
                             summary_ru, summary_uz,
                             key_points_json, glossary_json, practice_notes, conclusion_json, additional_notes_json,
                             common_mistakes_json, self_check_questions_json, homework_json, quiz_json,
-                            lesson_steps_json, visual_blocks_json, lesson_test_json,
+                            lesson_pages_json, lesson_steps_json, visual_blocks_json, lesson_test_json,
                             lesson_type, source_section, difficulty_level,
                             sort_order, position, created_at, updated_at
                          )
@@ -2037,11 +2241,11 @@ async function upsertCourseModuleLessons(
                             $4, $5, $6, $7,
                             $8, $9, $10, $11,
                             $12, $13,
-                            $14, $15, $16, $17, $18,
-                            $19, $20, $21, $22,
-                            $23, $24, $25,
-                            $26, $27, $28,
-                            $29, $29, NOW(), NOW()
+                             $14, $15, $16, $17, $18,
+                             $19, $20, $21, $22,
+                             $23, $24, $25, $26,
+                             $27, $28, $29,
+                             $30, $30, NOW(), NOW()
                          )
                          RETURNING id`,
                         [
@@ -2067,6 +2271,7 @@ async function upsertCourseModuleLessons(
                             JSON.stringify(selfCheckQuestionsJson),
                             JSON.stringify(homeworkJson),
                             JSON.stringify(quizJson),
+                            JSON.stringify(lessonPagesJson),
                             JSON.stringify(lessonStepsJson),
                             JSON.stringify(visualBlocksJson),
                             JSON.stringify(lessonTestJson),
@@ -2190,6 +2395,10 @@ export async function ingestPdf(
                     lesson_titles: lessonPlan.lessons.map(l => l.title),
                     total_pages: totalPages,
                     has_visual_hints: hasVisualHints,
+                    page_blocks_per_lesson: enrichedLessonPlan.lessons.map((l) => l.structured.lesson_pages_ru.length),
+                    page_numbers_per_lesson: enrichedLessonPlan.lessons.map((l) =>
+                        (l.structured.lesson_pages_ru || []).map((p) => p.page_number)
+                    ),
                     step_blocks_per_lesson: enrichedLessonPlan.lessons.map((l) => l.structured.lesson_steps_ru.length),
                     visual_blocks_per_lesson: enrichedLessonPlan.lessons.map((l) => l.structured.visual_blocks.length),
                     visual_pages_per_lesson: enrichedLessonPlan.lessons.map((l) =>
@@ -2293,7 +2502,7 @@ export async function scanLibrary(log?: FastifyBaseLogger): Promise<{
                     if (validLinks) {
                         // For new multilingual lesson system, ensure generated content exists.
                         const lessonContentRes = await query(
-                            `SELECT content_ru, content_uz, lesson_steps_json, visual_blocks_json, lesson_test_json
+                            `SELECT content_ru, content_uz, lesson_pages_json, lesson_test_json
                              FROM lessons WHERE id = $1 LIMIT 1`,
                             [row.lesson_id]
                         ).catch(() => ({ rows: [] as any[] }));
@@ -2308,35 +2517,30 @@ export async function scanLibrary(log?: FastifyBaseLogger): Promise<{
                             return Array.isArray(value) ? value : [];
                         };
 
-                        const stepsRu = pickLocalizedArray(lessonRow?.lesson_steps_json, 'RU');
-                        const stepsUz = pickLocalizedArray(lessonRow?.lesson_steps_json, 'UZ');
-                        const hasStepShape = (steps: any[]) => {
-                            if (!Array.isArray(steps) || steps.length < 8) return false;
-                            return steps.every((step) => {
-                                const hasExplanation = !!String(step?.ai_explanation || step?.explanation || '').trim();
-                                const hasPageText = !!String(step?.page_text || step?.source_excerpt || '').trim();
-                                const hasPage = Number(step?.page_from) >= 1;
+                        const pagesRu = pickLocalizedArray(lessonRow?.lesson_pages_json, 'RU');
+                        const pagesUz = pickLocalizedArray(lessonRow?.lesson_pages_json, 'UZ');
+                        const hasPageShape = (pages: any[]) => {
+                            if (!Array.isArray(pages) || pages.length < 2) return false;
+                            return pages.every((page) => {
+                                const hasExplanation = !!String(page?.ai_explanation || page?.explanation || '').trim();
+                                const hasPageText = !!String(page?.page_text || page?.source_excerpt || '').trim();
+                                const hasPage = Number(page?.page_number ?? page?.page ?? 0) >= 1;
                                 return hasExplanation && hasPageText && hasPage;
                             });
                         };
-                        const hasStepBlocks = hasStepShape(stepsRu) && hasStepShape(stepsUz);
-
-                        const visualCount = Array.isArray(lessonRow?.visual_blocks_json)
-                            ? lessonRow.visual_blocks_json.length
-                            : 0;
-                        const hasVisualBlocks = visualCount >= 2;
+                        const hasPageBlocks = hasPageShape(pagesRu) && hasPageShape(pagesUz);
 
                         const lessonTestRuCount = pickLocalizedArray(lessonRow?.lesson_test_json, 'RU').length;
                         const lessonTestUzCount = pickLocalizedArray(lessonRow?.lesson_test_json, 'UZ').length;
                         const hasLessonTest = lessonTestRuCount >= 3 && lessonTestUzCount >= 3;
 
-                        if (hasMultilingualContent && hasStepBlocks && hasVisualBlocks && hasLessonTest) {
+                        if (hasMultilingualContent && hasPageBlocks && hasLessonTest) {
                             if (log) log.info(`[scanLibrary] Skipping (already processed): ${file}`);
                             skipped++;
                             continue;
                         }
 
-                        if (log) log.info(`[scanLibrary] Reprocessing material without full step-based lesson structure: ${file}`);
+                        if (log) log.info(`[scanLibrary] Reprocessing material without full page-by-page lesson structure: ${file}`);
                     }
                 }
 
