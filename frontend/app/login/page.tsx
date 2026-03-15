@@ -33,11 +33,7 @@ export default function LoginPage() {
             if (user.role === 'superadmin') {
                 router.push('/admin');
             } else {
-                if (user.onboardingPassed) {
-                    router.push('/dashboard');
-                } else {
-                    router.push('/dashboard/assessment');
-                }
+                router.push('/dashboard');
             }
         } catch (err: any) {
             setError(err.response?.data?.error || 'Failed to login. Please check your credentials.');

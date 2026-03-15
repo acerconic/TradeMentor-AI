@@ -45,11 +45,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 };
                 Cookies.set('user', JSON.stringify(nextUser), { expires: 7 });
 
-                if (!onboardingPassed && pathname !== '/dashboard/assessment') {
-                    router.replace('/dashboard/assessment');
-                    return;
-                }
-                if (onboardingPassed && pathname === '/dashboard/assessment') {
+                // Assessment stays optional; no forced redirect on first login.
+                if (pathname === '/dashboard/assessment' && onboardingPassed) {
                     router.replace('/dashboard');
                     return;
                 }

@@ -478,12 +478,32 @@ export default function AdminLessonPage({ params }: { params: { id: string } }) 
                   {ruStepsPreview.map((step: any, idx: number) => (
                     <div key={`ru-step-${idx}`} className="rounded-lg p-3" style={{ background: 'rgba(11,18,32,0.55)', border: '1px solid rgba(123,63,228,0.12)' }}>
                       <p className="text-[11px] font-black uppercase" style={{ color: '#A87BFF' }}>
-                        {step.step_type || 'step'} · p.{step.page_from || 1}-{step.page_to || step.page_from || 1}
+                        {step.step_type || 'step'} · #{step.step_index || idx + 1} · p.{step.page_from || 1}-{step.page_to || step.page_from || 1}
                       </p>
                       <p className="text-sm font-semibold text-white mt-1">{String(step.title || '')}</p>
+                      {step.page_image && (
+                        <p className="text-[11px] mt-1" style={{ color: '#9AB1D2' }}>
+                          page_image: {String(step.page_image)}
+                        </p>
+                      )}
+                      {step.page_text && (
+                        <p className="text-[11px] mt-1 line-clamp-2" style={{ color: '#9AB1D2' }}>
+                          page_text: {String(step.page_text)}
+                        </p>
+                      )}
                       <p className="text-xs mt-1 line-clamp-2" style={{ color: '#C8D4E8' }}>
-                        {String(step.explanation || '')}
+                        {String(step.ai_explanation || step.explanation || '')}
                       </p>
+                      {step.notes && (
+                        <p className="text-[11px] mt-1 line-clamp-2" style={{ color: '#B8C8DE' }}>
+                          notes: {String(step.notes)}
+                        </p>
+                      )}
+                      {step.practical_interpretation && (
+                        <p className="text-[11px] mt-1 line-clamp-2" style={{ color: '#9FE9CF' }}>
+                          practical: {String(step.practical_interpretation)}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -501,12 +521,32 @@ export default function AdminLessonPage({ params }: { params: { id: string } }) 
                   {uzStepsPreview.map((step: any, idx: number) => (
                     <div key={`uz-step-${idx}`} className="rounded-lg p-3" style={{ background: 'rgba(11,18,32,0.55)', border: '1px solid rgba(42,169,255,0.12)' }}>
                       <p className="text-[11px] font-black uppercase" style={{ color: '#67D5FF' }}>
-                        {step.step_type || 'step'} · p.{step.page_from || 1}-{step.page_to || step.page_from || 1}
+                        {step.step_type || 'step'} · #{step.step_index || idx + 1} · p.{step.page_from || 1}-{step.page_to || step.page_from || 1}
                       </p>
                       <p className="text-sm font-semibold text-white mt-1">{String(step.title || '')}</p>
+                      {step.page_image && (
+                        <p className="text-[11px] mt-1" style={{ color: '#9AB1D2' }}>
+                          page_image: {String(step.page_image)}
+                        </p>
+                      )}
+                      {step.page_text && (
+                        <p className="text-[11px] mt-1 line-clamp-2" style={{ color: '#9AB1D2' }}>
+                          page_text: {String(step.page_text)}
+                        </p>
+                      )}
                       <p className="text-xs mt-1 line-clamp-2" style={{ color: '#C8D4E8' }}>
-                        {String(step.explanation || '')}
+                        {String(step.ai_explanation || step.explanation || '')}
                       </p>
+                      {step.notes && (
+                        <p className="text-[11px] mt-1 line-clamp-2" style={{ color: '#B8C8DE' }}>
+                          notes: {String(step.notes)}
+                        </p>
+                      )}
+                      {step.practical_interpretation && (
+                        <p className="text-[11px] mt-1 line-clamp-2" style={{ color: '#9FE9CF' }}>
+                          practical: {String(step.practical_interpretation)}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>

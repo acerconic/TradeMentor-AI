@@ -55,8 +55,14 @@ interface QuizItem {
 }
 
 interface LessonStepBlock {
+    step_index?: number;
     step_id: string;
     step_type: 'intro' | 'visual' | 'concept' | 'practice' | 'mistakes' | 'takeaway' | 'quiz' | 'next';
+    page_image?: string;
+    page_text?: string;
+    ai_explanation?: string;
+    notes?: string;
+    practical_interpretation?: string;
     title: string;
     source_excerpt: string;
     explanation: string;
@@ -980,6 +986,9 @@ function normalizeLessonSteps(
 
     return raw
         .map((item: any, index: number) => {
+            const step_index_raw = Number(item?.step_index);
+            const step_index = Number.isInteger(step_index_raw) ? Math.max(1, step_index_raw) : index + 1;
+
             const step_id_base = sanitizeTitle(String(item?.step_id || item?.id || `step_${index + 1}`), `step_${index + 1}`, 32)
                 .toLowerCase()
                 .replace(/[^a-z0-9_\-]/g, '_');
@@ -1002,19 +1011,81 @@ function normalizeLessonSteps(
                 ? 'Ushbu qadam bozor mantiqini amalda ko‘rsatadi.'
                 : 'Этот шаг помогает применить рыночную логику на практике.';
 
+            const page_image = sanitizeSummary(String(item?.page_image || `page:${page_from}`), `page:${page_from}`, 180);
+            const page_text = sanitizeSummary(String(item?.page_text || item?.source_excerpt || ''), '', 900);
+            const ai_explanation = sanitizeSummary(String(item?.ai_explanation || item?.explanation || ''), explanationFallback, 2600);
+            const notes = sanitizeSummary(String(item?.notes || item?.what_to_notice || ''), '', 560);
+            const practical_interpretation = sanitizeSummary(String(item?.practical_interpretation || ''), '', 1200);
+
+            const source_excerpt = sanitizeSummary(String(item?.source_excerpt || page_text), page_text, 560);
+            const explanation = sanitizeSummary(String(item?.explanation || ai_explanation), ai_explanation, 2200);
+            const what_to_notice = sanitizeSummary(String(item?.what_to_notice || notes), notes, 560);
+
             return {
+                step_index,
                 step_id,
                 step_type: normalizeStepType(item?.step_type),
+                page_image,
+                page_text,
+                ai_explanation,
+                notes,
+                practical_interpretation,
                 title: sanitizeSummary(String(item?.title || ''), titleFallback, 180),
-                source_excerpt: sanitizeSummary(String(item?.source_excerpt || ''), '', 560),
-                explanation: sanitizeSummary(String(item?.explanation || ''), explanationFallback, 2200),
-                what_to_notice: sanitizeSummary(String(item?.what_to_notice || ''), '', 560),
+                source_excerpt,
+                explanation,
+                what_to_notice,
                 visual_hint: sanitizeSummary(String(item?.visual_hint || ''), '', 420),
                 page_from,
                 page_to,
             } as LessonStepBlock;
         })
-        .filter((item: LessonStepBlock) => item.title && item.explanation)
+        .filter((item: LessonStepBlock) => item.title && item.ai_explanation)
+        .slice(0, 12);
+}
+
+function enrichStepBlocksForStorage(steps: LessonStepBlock[], language: 'RU' | 'UZ'): LessonStepBlock[] {
+    const explanationFallback = language === 'UZ'
+        ? "Ushbu qadam bozor mantiqini murabbiy uslubida tushuntiradi."
+        : 'Этот шаг объясняет рыночную логику в формате наставника.';
+
+    return (steps || [])
+        .map((step, index) => {
+            const page_from = Math.max(1, Number(step.page_from) || 1);
+            const page_to = Math.max(page_from, Number(step.page_to) || page_from);
+
+            const page_text = sanitizeSummary(String(step.page_text || step.source_excerpt || ''), '', 900);
+            const ai_explanation = sanitizeSummary(String(step.ai_explanation || step.explanation || ''), explanationFallback, 2600);
+            const notes = sanitizeSummary(String(step.notes || step.what_to_notice || ''), '', 560);
+
+            const practicalFallback = step.step_type === 'practice'
+                ? String(step.source_excerpt || ai_explanation)
+                : '';
+            const practical_interpretation = sanitizeSummary(
+                String(step.practical_interpretation || practicalFallback),
+                '',
+                1200
+            );
+
+            const source_excerpt = sanitizeSummary(String(step.source_excerpt || page_text), page_text, 560);
+            const explanation = sanitizeSummary(String(step.explanation || ai_explanation), ai_explanation, 2200);
+            const what_to_notice = sanitizeSummary(String(step.what_to_notice || notes), notes, 560);
+
+            return {
+                ...step,
+                step_index: Number.isInteger(Number(step.step_index)) ? Math.max(1, Number(step.step_index)) : index + 1,
+                page_image: sanitizeSummary(String(step.page_image || `page:${page_from}`), `page:${page_from}`, 180),
+                page_text,
+                ai_explanation,
+                notes,
+                practical_interpretation,
+                source_excerpt,
+                explanation,
+                what_to_notice,
+                page_from,
+                page_to,
+            } as LessonStepBlock;
+        })
+        .filter((item) => item.title && item.ai_explanation)
         .slice(0, 12);
 }
 
@@ -1236,7 +1307,7 @@ function buildFallbackLessonSteps(
         page_to: pageWindow.page_to,
     };
 
-    return [
+    return enrichStepBlocksForStorage([
         introStep,
         visualStepOne,
         visualStepTwo,
@@ -1246,7 +1317,7 @@ function buildFallbackLessonSteps(
         takeawayStep,
         quizStep,
         nextStep,
-    ];
+    ], language);
 }
 
 function buildVisualBlocks(
@@ -1272,12 +1343,12 @@ function buildVisualBlocks(
             const fragment = candidateByPage.get(pageFrom) || visualCandidates.find((item) => item.page >= pageFrom && item.page <= pageTo);
 
             const importanceRu = sanitizeSummary(
-                step.what_to_notice || step.visual_hint || '',
+                step.notes || step.what_to_notice || step.visual_hint || '',
                 'Смотрите на контекст, точку подтверждения и реакцию цены.',
                 320
             );
             const importanceUz = sanitizeSummary(
-                uz?.what_to_notice || uz?.visual_hint || '',
+                uz?.notes || uz?.what_to_notice || uz?.visual_hint || '',
                 "Kontekst, tasdiq nuqtasi va narx reaksiyasiga e'tibor bering.",
                 320
             );
@@ -1394,8 +1465,8 @@ Return ONLY valid JSON with this shape:
   "homework_uz": "homework in Uzbek",
   "quiz_ru": [{"question":"...", "options":["..."], "correct_index":0, "explanation":"..."}],
   "quiz_uz": [{"question":"...", "options":["..."], "correct_index":0, "explanation":"..."}],
-  "lesson_steps_ru": [{"step_id":"step_intro","step_type":"intro|visual|concept|practice|mistakes|takeaway|quiz|next","title":"...","source_excerpt":"...","explanation":"...","what_to_notice":"...","visual_hint":"...","page_from":1,"page_to":2}],
-  "lesson_steps_uz": [{"step_id":"step_intro","step_type":"intro|visual|concept|practice|mistakes|takeaway|quiz|next","title":"...","source_excerpt":"...","explanation":"...","what_to_notice":"...","visual_hint":"...","page_from":1,"page_to":2}],
+  "lesson_steps_ru": [{"step_index":1,"step_id":"step_intro","step_type":"intro|visual|concept|practice|mistakes|takeaway|quiz|next","title":"...","page_image":"page:1","page_text":"...","ai_explanation":"...","notes":"...","practical_interpretation":"...","source_excerpt":"...","explanation":"...","what_to_notice":"...","visual_hint":"...","page_from":1,"page_to":2}],
+  "lesson_steps_uz": [{"step_index":1,"step_id":"step_intro","step_type":"intro|visual|concept|practice|mistakes|takeaway|quiz|next","title":"...","page_image":"page:1","page_text":"...","ai_explanation":"...","notes":"...","practical_interpretation":"...","source_excerpt":"...","explanation":"...","what_to_notice":"...","visual_hint":"...","page_from":1,"page_to":2}],
   "conclusion_ru": "lesson conclusion in Russian",
   "conclusion_uz": "lesson conclusion in Uzbek",
   "additional_ru": "optional useful clarifications in Russian",
@@ -1425,6 +1496,8 @@ Rules:
   8) quiz
   9) next
 - For both visual steps: include page_from/page_to and visual_hint linked to page candidates when possible.
+- For every step include: step_index, page_image, page_text, ai_explanation, notes, practical_interpretation.
+- page_image can be "page:<number>" when there is no extracted bitmap file.
 - If explicit images are missing, still produce page-fragment visual steps using available page context.
 - step explanations should be detailed (3-6 meaningful sentences), not one-liners.`;
 
@@ -1528,7 +1601,7 @@ Rules:
             const lessonStepsRuRaw = normalizeLessonSteps(parsed?.lesson_steps_ru, 'RU', pageWindow.page_from, pageWindow.page_to);
             const lessonStepsUzRaw = normalizeLessonSteps(parsed?.lesson_steps_uz, 'UZ', pageWindow.page_from, pageWindow.page_to);
 
-            const lessonStepsRu = hasStrongJourneyFlow(lessonStepsRuRaw)
+            const lessonStepsRuBase = hasStrongJourneyFlow(lessonStepsRuRaw)
                 ? lessonStepsRuRaw
                 : buildFallbackLessonSteps(
                     'RU',
@@ -1545,7 +1618,7 @@ Rules:
                     hasVisualHints
                 );
 
-            const lessonStepsUz = hasStrongJourneyFlow(lessonStepsUzRaw)
+            const lessonStepsUzBase = hasStrongJourneyFlow(lessonStepsUzRaw)
                 ? lessonStepsUzRaw
                 : buildFallbackLessonSteps(
                     'UZ',
@@ -1561,6 +1634,9 @@ Rules:
                     visualCandidates,
                     hasVisualHints
                 );
+
+            const lessonStepsRu = enrichStepBlocksForStorage(lessonStepsRuBase, 'RU');
+            const lessonStepsUz = enrichStepBlocksForStorage(lessonStepsUzBase, 'UZ');
 
             const visualBlocks = buildVisualBlocks(lessonStepsRu, lessonStepsUz, visualCandidates);
 
@@ -2144,9 +2220,18 @@ export async function scanLibrary(log?: FastifyBaseLogger): Promise<{
                             return Array.isArray(value) ? value : [];
                         };
 
-                        const stepsRuCount = pickLocalizedArray(lessonRow?.lesson_steps_json, 'RU').length;
-                        const stepsUzCount = pickLocalizedArray(lessonRow?.lesson_steps_json, 'UZ').length;
-                        const hasStepBlocks = stepsRuCount >= 8 && stepsUzCount >= 8;
+                        const stepsRu = pickLocalizedArray(lessonRow?.lesson_steps_json, 'RU');
+                        const stepsUz = pickLocalizedArray(lessonRow?.lesson_steps_json, 'UZ');
+                        const hasStepShape = (steps: any[]) => {
+                            if (!Array.isArray(steps) || steps.length < 8) return false;
+                            return steps.every((step) => {
+                                const hasExplanation = !!String(step?.ai_explanation || step?.explanation || '').trim();
+                                const hasPageText = !!String(step?.page_text || step?.source_excerpt || '').trim();
+                                const hasPage = Number(step?.page_from) >= 1;
+                                return hasExplanation && hasPageText && hasPage;
+                            });
+                        };
+                        const hasStepBlocks = hasStepShape(stepsRu) && hasStepShape(stepsUz);
 
                         const visualCount = Array.isArray(lessonRow?.visual_blocks_json)
                             ? lessonRow.visual_blocks_json.length

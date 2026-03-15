@@ -47,8 +47,14 @@ type QuizItem = {
 type StepType = 'intro' | 'visual' | 'concept' | 'practice' | 'mistakes' | 'takeaway' | 'quiz' | 'next';
 
 type LessonStep = {
+  step_index?: number;
   step_id: string;
   step_type: StepType;
+  page_image?: string;
+  page_text?: string;
+  ai_explanation?: string;
+  notes?: string;
+  practical_interpretation?: string;
   title: string;
   source_excerpt: string;
   explanation: string;
@@ -148,8 +154,6 @@ const COPY = {
     askAi: 'Спросить AI',
     addFavorite: 'В избранное',
     inFavorite: 'В избранном',
-    openPdf: 'Открыть оригинальный PDF',
-    hidePdf: 'Скрыть оригинальный PDF',
     journey: 'Guided lesson journey',
     journeyHint: 'Переходите по шагам как по mini-course, без длинной простыни текста.',
     visualTitle: 'Фокус-фрагмент из книги',
@@ -181,9 +185,6 @@ const COPY = {
     completeBeforeNext: 'Завершение и переход',
     nextLesson: 'Перейти к следующему уроку',
     noNextLesson: 'Это последний урок в текущей последовательности.',
-    pdfOptional: 'Original PDF (опционально)',
-    pdfNotReady: 'PDF preview еще не готов',
-    retryLoad: 'Загрузить',
     lessonNotFound: 'Lesson not found',
     lessonNotFoundHint: 'Вернитесь в Academy и выберите урок повторно.',
     reframedToast: 'AI дал альтернативное объяснение текущего шага',
@@ -209,8 +210,6 @@ const COPY = {
     askAi: "AI'dan so'rash",
     addFavorite: "Sevimlilarga qo'shish",
     inFavorite: 'Sevimlida',
-    openPdf: 'Original PDF ochish',
-    hidePdf: 'Original PDF yashirish',
     journey: 'Guided lesson journey',
     journeyHint: "Uzun matn o'rniga darsni mini-kurs kabi bosqichma-bosqich o'ting.",
     visualTitle: 'Kitobdan vizual fokus-fragment',
@@ -242,9 +241,6 @@ const COPY = {
     completeBeforeNext: 'Yakun va o`tish',
     nextLesson: "Keyingi darsga o'tish",
     noNextLesson: "Bu ketma-ketlikdagi oxirgi dars.",
-    pdfOptional: 'Original PDF (ixtiyoriy)',
-    pdfNotReady: 'PDF preview hali tayyor emas',
-    retryLoad: 'Yuklash',
     lessonNotFound: 'Lesson topilmadi',
     lessonNotFoundHint: 'Academyga qayting va darsni qayta tanlang.',
     reframedToast: 'AI joriy qadamni boshqacha tushuntirdi',
@@ -323,23 +319,34 @@ function normalizeSteps(raw: any): LessonStep[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .map((item: any, index: number) => {
+      const stepIndexRaw = Number(item?.step_index);
       const pageFromRaw = Number(item?.page_from);
       const pageToRaw = Number(item?.page_to);
       const page_from = Number.isInteger(pageFromRaw) ? Math.max(1, pageFromRaw) : 1;
       const page_to = Number.isInteger(pageToRaw) ? Math.max(page_from, pageToRaw) : page_from;
+      const page_text = normalizeText(item?.page_text || item?.source_excerpt);
+      const ai_explanation = normalizeText(item?.ai_explanation || item?.explanation);
+      const notes = normalizeText(item?.notes || item?.what_to_notice);
+      const practical_interpretation = normalizeText(item?.practical_interpretation);
       return {
+        step_index: Number.isInteger(stepIndexRaw) ? Math.max(1, stepIndexRaw) : index + 1,
         step_id: normalizeText(item?.step_id || `step_${index + 1}`),
         step_type: normalizeStepType(item?.step_type),
+        page_image: normalizeText(item?.page_image),
+        page_text,
+        ai_explanation,
+        notes,
+        practical_interpretation,
         title: normalizeText(item?.title),
-        source_excerpt: normalizeText(item?.source_excerpt),
-        explanation: normalizeText(item?.explanation),
-        what_to_notice: normalizeText(item?.what_to_notice),
+        source_excerpt: page_text || normalizeText(item?.source_excerpt),
+        explanation: ai_explanation || normalizeText(item?.explanation),
+        what_to_notice: notes || normalizeText(item?.what_to_notice),
         visual_hint: normalizeText(item?.visual_hint),
         page_from,
         page_to,
       } as LessonStep;
     })
-    .filter((step) => step.title && step.explanation)
+    .filter((step) => step.title && (step.ai_explanation || step.explanation))
     .slice(0, 12);
 }
 
@@ -668,6 +675,37 @@ function buildFallbackJourneySteps(
   ];
 }
 
+function enrichStepsForUi(steps: LessonStep[]): LessonStep[] {
+  return (steps || [])
+    .map((step, index) => {
+      const pageFrom = Math.max(1, Number(step.page_from) || 1);
+      const pageTo = Math.max(pageFrom, Number(step.page_to) || pageFrom);
+      const page_text = normalizeText(step.page_text || step.source_excerpt);
+      const ai_explanation = normalizeText(step.ai_explanation || step.explanation);
+      const notes = normalizeText(step.notes || step.what_to_notice);
+      const practical_interpretation = normalizeText(
+        step.practical_interpretation || (step.step_type === 'practice' ? (step.source_excerpt || step.explanation) : ''),
+      );
+
+      return {
+        ...step,
+        step_index: Number.isInteger(Number(step.step_index)) ? Math.max(1, Number(step.step_index)) : index + 1,
+        page_image: normalizeText(step.page_image || `page:${pageFrom}`),
+        page_text,
+        ai_explanation,
+        notes,
+        practical_interpretation,
+        source_excerpt: page_text || normalizeText(step.source_excerpt),
+        explanation: ai_explanation || normalizeText(step.explanation),
+        what_to_notice: notes || normalizeText(step.what_to_notice),
+        page_from: pageFrom,
+        page_to: pageTo,
+      } as LessonStep;
+    })
+    .filter((step) => step.title && step.ai_explanation)
+    .slice(0, 12);
+}
+
 export default function LessonPage({ params }: { params: { id: string } }) {
   const { t, language, setLanguage } = useLanguage();
   const router = useRouter();
@@ -679,9 +717,10 @@ export default function LessonPage({ params }: { params: { id: string } }) {
   const [prepareProgress, setPrepareProgress] = useState(0);
   const [prepareMessage, setPrepareMessage] = useState('');
 
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [showPdf, setShowPdf] = useState(false);
   const [isLoadingPdf, setIsLoadingPdf] = useState(false);
+  const [isRenderingPageImage, setIsRenderingPageImage] = useState(false);
+  const [pageImageByPage, setPageImageByPage] = useState<Record<number, string>>({});
+  const [pageRenderError, setPageRenderError] = useState<string | null>(null);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isFavorite, setIsFavorite] = useState(false);
@@ -696,7 +735,9 @@ export default function LessonPage({ params }: { params: { id: string } }) {
   const [quizAnswers, setQuizAnswers] = useState<Record<number, number>>({});
   const [quizSubmitted, setQuizSubmitted] = useState(false);
 
-  const pdfObjectUrlRef = useRef<string | null>(null);
+  const pdfBinaryRef = useRef<ArrayBuffer | null>(null);
+  const pdfDocumentRef = useRef<any>(null);
+  const renderingPagesRef = useRef<Set<number>>(new Set());
 
   const uiLanguage: UiLanguage = language === 'UZ' ? 'UZ' : 'RU';
   const copy = COPY[uiLanguage];
@@ -772,10 +813,9 @@ export default function LessonPage({ params }: { params: { id: string } }) {
 
   useEffect(() => {
     return () => {
-      if (pdfObjectUrlRef.current) {
-        URL.revokeObjectURL(pdfObjectUrlRef.current);
-        pdfObjectUrlRef.current = null;
-      }
+      pdfBinaryRef.current = null;
+      pdfDocumentRef.current = null;
+      renderingPagesRef.current.clear();
     };
   }, []);
 
@@ -789,25 +829,85 @@ export default function LessonPage({ params }: { params: { id: string } }) {
     setActiveStepIndex(0);
     setVisitedSteps(new Set([0]));
     setAlternateExplanation('');
+    setPageImageByPage({});
+    setPageRenderError(null);
+    pdfBinaryRef.current = null;
+    pdfDocumentRef.current = null;
+    renderingPagesRef.current.clear();
   }, [lesson?.id]);
 
-  const ensurePdfLoaded = async () => {
-    if (!lesson?.id || !lesson.pdf_path || pdfUrl || isLoadingPdf) return;
+  const ensurePdfBinaryLoaded = async (): Promise<boolean> => {
+    if (!lesson?.id || !lesson.pdf_path) return false;
+    if (pdfBinaryRef.current) return true;
+    if (isLoadingPdf) return false;
+
     setIsLoadingPdf(true);
+    setPageRenderError(null);
     try {
-      const response = await api.get(`/courses/lessons/${lesson.id}/pdf`, { responseType: 'blob' });
-      const blob = new Blob([response.data], { type: 'application/pdf' });
-      if (pdfObjectUrlRef.current) URL.revokeObjectURL(pdfObjectUrlRef.current);
-      const objectUrl = URL.createObjectURL(blob);
-      pdfObjectUrlRef.current = objectUrl;
-      setPdfUrl(objectUrl);
+      const response = await api.get(`/courses/lessons/${lesson.id}/pdf`, { responseType: 'arraybuffer' });
+      pdfBinaryRef.current = response.data;
+      return true;
     } catch (error: any) {
-      setPdfUrl(null);
-      if (error.response?.status !== 404) {
-        showToast(error.response?.data?.error || 'Failed to load PDF');
-      }
+      pdfBinaryRef.current = null;
+      const message = error.response?.data?.error || 'Failed to load PDF pages';
+      setPageRenderError(message);
+      showToast(message);
+      return false;
     } finally {
       setIsLoadingPdf(false);
+    }
+  };
+
+  const ensurePageImage = async (page: number) => {
+    if (!lesson?.pdf_path) return;
+    const requestedPage = Math.max(1, Number(page) || 1);
+    if (pageImageByPage[requestedPage]) return;
+    if (renderingPagesRef.current.has(requestedPage)) return;
+
+    const loaded = await ensurePdfBinaryLoaded();
+    if (!loaded) return;
+
+    renderingPagesRef.current.add(requestedPage);
+    setIsRenderingPageImage(true);
+    setPageRenderError(null);
+
+    try {
+      const pdfjs = await import('pdfjs-dist');
+      if (pdfjs.GlobalWorkerOptions && !pdfjs.GlobalWorkerOptions.workerSrc) {
+        pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+      }
+
+      if (!pdfDocumentRef.current) {
+        const loadingTask = pdfjs.getDocument({ data: new Uint8Array(pdfBinaryRef.current as ArrayBuffer) });
+        pdfDocumentRef.current = await loadingTask.promise;
+      }
+
+      const pdfDoc = pdfDocumentRef.current;
+      const totalPages = Number(pdfDoc?.numPages || requestedPage);
+      const safePage = Math.max(1, Math.min(totalPages, requestedPage));
+
+      if (pageImageByPage[safePage]) return;
+
+      const pageObj = await pdfDoc.getPage(safePage);
+      const viewport = pageObj.getViewport({ scale: 1.35 });
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+
+      if (!context) throw new Error('Canvas rendering is unavailable');
+
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      await pageObj.render({ canvasContext: context, viewport }).promise;
+
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      setPageImageByPage((prev) => (prev[safePage] ? prev : { ...prev, [safePage]: dataUrl }));
+    } catch (error: any) {
+      const message = error?.message || 'Failed to render page image';
+      setPageRenderError(message);
+      showToast(message);
+    } finally {
+      renderingPagesRef.current.delete(requestedPage);
+      setIsRenderingPageImage(renderingPagesRef.current.size > 0);
     }
   };
 
@@ -912,8 +1012,8 @@ export default function LessonPage({ params }: { params: { id: string } }) {
 
   const steps = useMemo(() => {
     const parsed = normalizeSteps(pickLocalized(lesson?.lesson_steps_json, uiLanguage));
-    if (hasJourneyShape(parsed)) return parsed;
-    return buildFallbackJourneySteps(uiLanguage, localizedSummary, localizedContent, practical, commonMistakes, remember, quizItems.length);
+    if (hasJourneyShape(parsed)) return enrichStepsForUi(parsed);
+    return enrichStepsForUi(buildFallbackJourneySteps(uiLanguage, localizedSummary, localizedContent, practical, commonMistakes, remember, quizItems.length));
   }, [lesson?.lesson_steps_json, uiLanguage, localizedSummary, localizedContent, practical, commonMistakes, remember, quizItems.length]);
 
   const visualBlocks = useMemo(() => {
@@ -952,28 +1052,25 @@ export default function LessonPage({ params }: { params: { id: string } }) {
     if (!currentStep) return null;
     const fromBlock = visualBlocks.find((item) => item.step_id === currentStep.step_id);
     if (fromBlock) return fromBlock;
-    if (currentStep.step_type === 'visual') {
-      return {
-        step_id: currentStep.step_id,
-        page_from: Math.max(1, currentStep.page_from || 1),
-        page_to: Math.max(Math.max(1, currentStep.page_from || 1), currentStep.page_to || currentStep.page_from || 1),
-        visual_kind: 'page_fragment' as const,
-        caption_ru: currentStep.title,
-        caption_uz: currentStep.title,
-        importance_ru: currentStep.what_to_notice,
-        importance_uz: currentStep.what_to_notice,
-        page_excerpt: currentStep.source_excerpt,
-        focus_points_ru: splitSentences(currentStep.what_to_notice || '').slice(0, 3),
-        focus_points_uz: splitSentences(currentStep.what_to_notice || '').slice(0, 3),
-      } as VisualBlock;
-    }
-    return null;
+    return {
+      step_id: currentStep.step_id,
+      page_from: Math.max(1, currentStep.page_from || 1),
+      page_to: Math.max(Math.max(1, currentStep.page_from || 1), currentStep.page_to || currentStep.page_from || 1),
+      visual_kind: 'page_fragment' as const,
+      caption_ru: currentStep.title,
+      caption_uz: currentStep.title,
+      importance_ru: currentStep.notes || currentStep.what_to_notice,
+      importance_uz: currentStep.notes || currentStep.what_to_notice,
+      page_excerpt: currentStep.page_text || currentStep.source_excerpt,
+      focus_points_ru: splitSentences(currentStep.notes || currentStep.what_to_notice || '').slice(0, 3),
+      focus_points_uz: splitSentences(currentStep.notes || currentStep.what_to_notice || '').slice(0, 3),
+    } as VisualBlock;
   }, [currentStep, visualBlocks]);
 
   useEffect(() => {
     if (!currentVisual || !lesson?.pdf_path) return;
-    void ensurePdfLoaded();
-  }, [currentVisual?.step_id, lesson?.pdf_path]);
+    void ensurePageImage(currentVisual.page_from || currentStep?.page_from || 1);
+  }, [currentVisual?.step_id, currentVisual?.page_from, currentStep?.page_from, lesson?.pdf_path]);
 
   useEffect(() => {
     setVisitedSteps((prev) => {
@@ -1018,9 +1115,14 @@ export default function LessonPage({ params }: { params: { id: string } }) {
       selfCheckQuestions: selfCheck,
       homework,
       currentStepId: step?.step_id,
+      currentStepIndex: step?.step_index,
       currentStepTitle: step?.title,
       currentStepType: step?.step_type,
-      currentStepExplanation: step?.explanation,
+      currentStepExplanation: step?.ai_explanation || step?.explanation,
+      currentStepNotes: step?.notes || step?.what_to_notice,
+      currentStepPractical: step?.practical_interpretation,
+      currentStepPageText: step?.page_text || step?.source_excerpt,
+      currentStepPageImage: step?.page_image,
       currentStepPageFrom: step?.page_from,
       currentStepPageTo: step?.page_to,
     };
@@ -1095,7 +1197,7 @@ export default function LessonPage({ params }: { params: { id: string } }) {
             `Ushbu qadamni boshqacha, soddaroq va aniqroq tushuntiring.`,
             `Qadam: ${currentStep.title}`,
             `Qadam turi: ${currentStep.step_type}`,
-            `Mavjud izoh: ${currentStep.explanation}`,
+            `Mavjud izoh: ${stepExplanationText}`,
             `Iltimos:`,
             `1) oddiy til`,
             `2) amaliy misol`,
@@ -1105,7 +1207,7 @@ export default function LessonPage({ params }: { params: { id: string } }) {
             'Объясни этот шаг иначе: проще, глубже и практичнее.',
             `Шаг: ${currentStep.title}`,
             `Тип шага: ${currentStep.step_type}`,
-            `Текущее объяснение: ${currentStep.explanation}`,
+            `Текущее объяснение: ${stepExplanationText}`,
             'Сделай ответ в 3 блоках:',
             '1) простое объяснение',
             '2) практический пример для трейдинга',
@@ -1163,6 +1265,19 @@ export default function LessonPage({ params }: { params: { id: string } }) {
   const visualImportance = uiLanguage === 'UZ' ? currentVisual?.importance_uz : currentVisual?.importance_ru;
   const visualCaption = uiLanguage === 'UZ' ? currentVisual?.caption_uz : currentVisual?.caption_ru;
   const visualFocusPoints = uiLanguage === 'UZ' ? currentVisual?.focus_points_uz : currentVisual?.focus_points_ru;
+
+  const stepExplanationText = normalizeText(currentStep?.ai_explanation || currentStep?.explanation || '');
+  const stepNotesText = normalizeText(currentStep?.notes || currentStep?.what_to_notice || '');
+  const stepPracticalText = normalizeText(
+    currentStep?.practical_interpretation || (currentStep?.step_type === 'practice' ? practical : ''),
+  );
+  const stepPageText = normalizeText(currentStep?.page_text || currentStep?.source_excerpt || '');
+
+  const currentVisualPage = Math.max(1, Number(currentVisual?.page_from || currentStep?.page_from || 1));
+  const rawStepImage = normalizeText(currentStep?.page_image || '');
+  const directStepImage = rawStepImage && !rawStepImage.startsWith('page:') ? rawStepImage : '';
+  const renderedPageImage = pageImageByPage[currentVisualPage] || '';
+  const currentPageImage = directStepImage || renderedPageImage;
 
   if (!user) return null;
 
@@ -1359,17 +1474,6 @@ export default function LessonPage({ params }: { params: { id: string } }) {
                     {isFavorite ? copy.inFavorite : copy.addFavorite}
                   </button>
 
-                  <button
-                    onClick={() => {
-                      setShowPdf((prev) => !prev);
-                      if (!pdfUrl) void ensurePdfLoaded();
-                    }}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold"
-                    style={{ background: '#111A2F', border: '1px solid rgba(42,169,255,0.32)', color: '#67D5FF' }}
-                  >
-                    <FileText size={14} />
-                    {showPdf ? copy.hidePdf : copy.openPdf}
-                  </button>
                 </div>
               </div>
             </section>
@@ -1426,28 +1530,37 @@ export default function LessonPage({ params }: { params: { id: string } }) {
                     </div>
 
                     <div className="mt-3 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(42,169,255,0.2)', background: '#0A1020' }}>
-                      {isLoadingPdf && (
+                      {(isLoadingPdf || isRenderingPageImage) && (
                         <div className="px-3 py-2 text-xs flex items-center gap-2" style={{ color: '#9AB1D2' }}>
                           <Loader2 size={12} className="animate-spin" /> {copy.visualLoading}
                         </div>
                       )}
 
-                      {pdfUrl ? (
-                        <iframe
-                          title="Focused lesson page"
-                          src={`${pdfUrl}#page=${currentVisual.page_from}&view=FitH`}
+                      {currentPageImage ? (
+                        <img
+                          src={currentPageImage}
+                          alt={`Lesson page ${currentVisualPage}`}
                           className="w-full"
-                          style={{ height: '360px', border: 'none', background: '#0A1020' }}
+                          style={{ maxHeight: '520px', objectFit: 'contain', background: '#0A1020' }}
                         />
                       ) : (
                         <div className="p-5 text-center">
-                          <button
-                            onClick={() => void ensurePdfLoaded()}
-                            className="px-4 py-2 rounded-lg text-sm font-bold"
-                            style={{ background: 'rgba(42,169,255,0.2)', border: '1px solid rgba(42,169,255,0.35)', color: '#67D5FF' }}
-                          >
-                            {copy.visualLoad}
-                          </button>
+                          {lesson?.pdf_path ? (
+                            <button
+                              onClick={() => void ensurePageImage(currentVisualPage)}
+                              className="px-4 py-2 rounded-lg text-sm font-bold"
+                              style={{ background: 'rgba(42,169,255,0.2)', border: '1px solid rgba(42,169,255,0.35)', color: '#67D5FF' }}
+                            >
+                              {copy.visualLoad}
+                            </button>
+                          ) : (
+                            <p className="text-xs" style={{ color: '#9AB1D2' }}>
+                              Source PDF page is not attached for this lesson.
+                            </p>
+                          )}
+                          {pageRenderError && (
+                            <p className="text-xs mt-2" style={{ color: '#FCA5A5' }}>{pageRenderError}</p>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1497,13 +1610,27 @@ export default function LessonPage({ params }: { params: { id: string } }) {
                     </div>
 
                     <div className="mt-4">
-                      <p className="text-sm leading-7" style={{ color: '#D5E2F4' }}>{currentStep.explanation}</p>
+                      <p className="text-sm leading-7" style={{ color: '#D5E2F4' }}>{stepExplanationText}</p>
                     </div>
 
-                    {currentStep.what_to_notice && (
+                    {stepNotesText && (
                       <div className="mt-4 rounded-xl p-3" style={{ background: 'rgba(11,18,32,0.6)', border: '1px solid rgba(42,169,255,0.22)' }}>
                         <p className="text-xs font-black uppercase tracking-wide" style={{ color: '#67D5FF' }}>{copy.whatToNotice}</p>
-                        <p className="text-sm mt-2" style={{ color: '#D8ECFF' }}>{currentStep.what_to_notice}</p>
+                        <p className="text-sm mt-2" style={{ color: '#D8ECFF' }}>{stepNotesText}</p>
+                      </div>
+                    )}
+
+                    {stepPracticalText && (
+                      <div className="mt-4 rounded-xl p-3" style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.28)' }}>
+                        <p className="text-xs uppercase font-black" style={{ color: '#6EE7B7' }}>{copy.practicalUse}</p>
+                        <p className="text-sm mt-2" style={{ color: '#D4FBEA' }}>{stepPracticalText}</p>
+                      </div>
+                    )}
+
+                    {stepPageText && (
+                      <div className="mt-4 rounded-xl p-3" style={{ background: 'rgba(17,26,47,0.8)', border: '1px solid rgba(123,140,166,0.22)' }}>
+                        <p className="text-xs font-black uppercase tracking-wide" style={{ color: '#9AB1D2' }}>{copy.sourceFragment}</p>
+                        <p className="text-sm mt-2" style={{ color: '#C8D4E8' }}>{stepPageText}</p>
                       </div>
                     )}
 
@@ -1544,22 +1671,18 @@ export default function LessonPage({ params }: { params: { id: string } }) {
                     )}
 
                     {currentStep.step_type === 'practice' && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
-                        <div className="rounded-xl p-3" style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.28)' }}>
-                          <p className="text-xs uppercase font-black" style={{ color: '#6EE7B7' }}>{copy.practicalUse}</p>
-                          <p className="text-sm mt-2 whitespace-pre-wrap" style={{ color: '#D5FBEA' }}>{practical}</p>
-                        </div>
-
-                        <div className="rounded-xl p-3" style={{ background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.28)' }}>
-                          <p className="text-xs uppercase font-black" style={{ color: '#FCD34D' }}>{copy.quickRules}</p>
-                          <ul className="mt-2 space-y-1.5">
-                            {keyPoints.slice(0, 4).map((item, idx) => (
-                              <li key={`rule-${idx}-${item.slice(0, 20)}`} className="text-sm" style={{ color: '#FDE68A' }}>
-                                <Check size={12} className="inline mr-1" /> {item}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
+                      <div className="rounded-xl p-3 mt-4" style={{ background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.28)' }}>
+                        <p className="text-xs uppercase font-black" style={{ color: '#FCD34D' }}>{copy.quickRules}</p>
+                        <ul className="mt-2 space-y-1.5">
+                          {keyPoints.slice(0, 4).map((item, idx) => (
+                            <li key={`rule-${idx}-${item.slice(0, 20)}`} className="text-sm" style={{ color: '#FDE68A' }}>
+                              <Check size={12} className="inline mr-1" /> {item}
+                            </li>
+                          ))}
+                        </ul>
+                        {stepPracticalText && (
+                          <p className="text-sm mt-3" style={{ color: '#FDE68A' }}>{stepPracticalText}</p>
+                        )}
                       </div>
                     )}
 
@@ -1769,39 +1892,6 @@ export default function LessonPage({ params }: { params: { id: string } }) {
               </section>
             )}
 
-            {showPdf && (
-              <section className="glass-card overflow-hidden mt-5" style={{ border: '1px solid rgba(123,63,228,0.15)' }}>
-                <div className="flex items-center justify-between p-4" style={{ borderBottom: '1px solid rgba(123,63,228,0.12)', background: 'rgba(11,18,32,0.4)' }}>
-                  <div className="flex items-center gap-2">
-                    <FileText size={16} style={{ color: '#67D5FF' }} />
-                    <span className="text-sm font-bold text-white">{copy.pdfOptional}</span>
-                  </div>
-                  {isLoadingPdf && (
-                    <div className="flex items-center gap-2 text-xs" style={{ color: '#7B8CA6' }}>
-                      <Loader2 size={14} className="animate-spin" /> Loading PDF...
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ background: '#0A1020' }}>
-                  {pdfUrl ? (
-                    <iframe title="Lesson PDF" src={pdfUrl} className="w-full" style={{ height: '78vh', border: 'none' }} />
-                  ) : (
-                    <div className="p-8 text-center">
-                      <FileText size={30} style={{ color: '#7B8CA6' }} className="mx-auto mb-2" />
-                      <p className="text-white font-bold">{copy.pdfNotReady}</p>
-                      <button
-                        onClick={() => void ensurePdfLoaded()}
-                        className="mt-3 px-4 py-2 rounded-lg text-sm font-bold"
-                        style={{ background: 'rgba(42,169,255,0.2)', border: '1px solid rgba(42,169,255,0.35)', color: '#67D5FF' }}
-                      >
-                        {copy.retryLoad}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </section>
-            )}
           </>
         )}
       </main>
