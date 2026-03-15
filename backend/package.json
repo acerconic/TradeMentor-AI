@@ -17,10 +17,12 @@
     "@fastify/cors": "^11.2.0",
     "@fastify/jwt": "^10.0.0",
     "@fastify/multipart": "^9.4.0",
+    "@napi-rs/canvas": "^0.1.96",
     "argon2": "^0.44.0",
     "dotenv": "^17.3.1",
     "fastify": "^5.8.2",
     "pdf-parse": "^2.4.5",
+    "pdfjs-dist": "^5.5.207",
     "pg": "^8.16.0",
     "zod": "^4.3.6"
   },

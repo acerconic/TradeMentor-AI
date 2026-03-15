@@ -3,6 +3,7 @@ import { query } from '../config/db'
 import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
+import { ensurePdfPageImage } from '../services/pdfPageImageService'
 
 const requireSuperadmin = async (request: any, reply: any) => {
     if (request.user?.role !== 'superadmin') {
@@ -660,6 +661,31 @@ export async function publicCourseRoutes(server: FastifyInstance) {
         } catch (e: any) {
             server.log.error(`[Courses] Lesson PDF error: ${e.message}`)
             return reply.status(500).send({ error: 'Failed to load PDF', details: e.message })
+        }
+    })
+
+    // GET /courses/lessons/:lessonId/pages/:pageNumber/image — stream rendered page image (auth)
+    server.get('/lessons/:lessonId/pages/:pageNumber/image', { preValidation: [server.authenticate] }, async (request: any, reply) => {
+        try {
+            const { lessonId, pageNumber } = request.params as { lessonId: string; pageNumber: string }
+            const safePage = Math.max(1, Number(pageNumber) || 1)
+
+            const res = await query(`SELECT pdf_path FROM lessons WHERE id = $1 LIMIT 1`, [lessonId])
+            if (!res.rows.length) return reply.status(404).send({ error: 'Lesson not found' })
+
+            const pdfPath = resolveSafePdfPath(res.rows[0].pdf_path)
+            if (!pdfPath) return reply.status(404).send({ error: 'PDF not found' })
+            if (!fs.existsSync(pdfPath)) return reply.status(404).send({ error: 'PDF not found' })
+
+            const imagePath = await ensurePdfPageImage(pdfPath, safePage, server.log)
+            if (!fs.existsSync(imagePath)) return reply.status(404).send({ error: 'Page image not found' })
+
+            reply.header('Content-Type', 'image/jpeg')
+            reply.header('Cache-Control', 'private, max-age=86400')
+            return reply.send(fs.createReadStream(imagePath))
+        } catch (e: any) {
+            server.log.error(`[Courses] Lesson page image error: ${e.message}`)
+            return reply.status(500).send({ error: 'Failed to load page image', details: e.message })
         }
     })
 }

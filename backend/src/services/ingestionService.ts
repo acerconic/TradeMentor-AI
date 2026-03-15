@@ -15,6 +15,7 @@ import crypto from 'crypto';
 import { pool, query } from '../config/db';
 import { openRouterService } from '../ai/openrouter';
 import { FastifyBaseLogger } from 'fastify';
+import { getGeneratedPageImageRoute, renderPdfPagesToImages } from './pdfPageImageService';
 
 // ── Types ────────────────────────────────────────────────────
 interface AIClassification {
@@ -59,6 +60,7 @@ interface LessonPageBlock {
     page_image?: string;
     page_text: string;
     ai_explanation: string;
+    alternative_explanation?: string;
     notes?: string;
     practical_interpretation?: string;
     key_terms?: string[];
@@ -150,6 +152,29 @@ interface IngestionResult {
 type PgClient = {
     query: (text: string, params?: any[]) => Promise<any>;
 };
+
+function attachLessonPageImageRoutes(lessonId: string, pages: LessonPageBlock[]): LessonPageBlock[] {
+    return (pages || []).map((page) => {
+        const pageNumber = Math.max(1, Number(page.page_number) || 1);
+        return {
+            ...page,
+            page_number: pageNumber,
+            page_image: getGeneratedPageImageRoute(lessonId, pageNumber),
+        } as LessonPageBlock;
+    });
+}
+
+function attachLessonStepImageRoutes(lessonId: string, steps: LessonStepBlock[]): LessonStepBlock[] {
+    return (steps || []).map((step, index) => {
+        const fallbackPage = Math.max(1, Number(step.page_from) || Number(step.page_to) || index + 1);
+        return {
+            ...step,
+            page_image: getGeneratedPageImageRoute(lessonId, fallbackPage),
+            page_from: fallbackPage,
+            page_to: Math.max(fallbackPage, Number(step.page_to) || fallbackPage),
+        } as LessonStepBlock;
+    });
+}
 
 function isPgUndefinedColumnError(e: any): boolean {
     return e?.code === '42703' || String(e?.message || '').toLowerCase().includes('column') && String(e?.message || '').toLowerCase().includes('does not exist');
@@ -926,10 +951,10 @@ function buildPageWindow(totalPages: number, lessonIndex: number, totalLessons: 
 function pickPageFragments(pageFragments: PdfPageFragment[], pageFrom: number, pageTo: number): PdfPageFragment[] {
     const relevant = (pageFragments || [])
         .filter((item) => item.page >= pageFrom && item.page <= pageTo)
-        .slice(0, 12);
+        .sort((a, b) => Number(a.page) - Number(b.page));
 
     if (relevant.length > 0) return relevant;
-    return (pageFragments || []).slice(0, 6);
+    return (pageFragments || []).sort((a, b) => Number(a.page) - Number(b.page));
 }
 
 function pickVisualCandidates(pageFragments: PdfPageFragment[], pageFrom: number, pageTo: number): PdfPageFragment[] {
@@ -1008,8 +1033,8 @@ function normalizeLessonPages(
     }
 
     const explanationFallback = defaultLanguage === 'UZ'
-        ? 'Bu sahifadagi tushunchalar bozor mantiqi bilan bosqichma-bosqich ochib beriladi. Signalni kontekst, likvidlik va tasdiq orqali o‘qing.'
-        : 'На этой странице ключевые идеи раскрываются через рыночную логику. Читайте сигнал через контекст, ликвидность и подтверждение.';
+        ? 'Bu sahifada bozor mantiqi, likvidlik va Smart Money qarorlari bosqichma-bosqich ochib beriladi. Har bir signal kontekst bilan birga tushuntiriladi va amaliy qo‘llash ko‘rsatiladi.'
+        : 'На этой странице рыночная механика, ликвидность и логика Smart Money раскрываются пошагово. Каждый сигнал объясняется в контексте и переводится в практическое применение.';
 
     const normalized = raw
         .map((item: any, index: number) => {
@@ -1031,7 +1056,12 @@ function normalizeLessonPages(
             const ai_explanation = sanitizeSummary(
                 String(item?.ai_explanation || item?.explanation || ''),
                 explanationFallback,
-                6200
+                9000
+            );
+            const alternative_explanation = sanitizeSummary(
+                String(item?.alternative_explanation || item?.alt_explanation || item?.simple_explanation || ''),
+                '',
+                7000
             );
 
             const notesRaw = Array.isArray(item?.notes)
@@ -1052,6 +1082,7 @@ function normalizeLessonPages(
                 page_image: sanitizeSummary(String(item?.page_image || `page:${page_number}`), `page:${page_number}`, 180),
                 page_text,
                 ai_explanation,
+                alternative_explanation,
                 notes: sanitizeSummary(notesRaw, '', 1100),
                 practical_interpretation,
                 key_terms,
@@ -1067,7 +1098,7 @@ function normalizeLessonPages(
         if (seenPages.has(item.page_number)) continue;
         seenPages.add(item.page_number);
         unique.push(item);
-        if (unique.length >= 14) break;
+        if (unique.length >= 240) break;
     }
 
     return unique;
@@ -1088,7 +1119,7 @@ function buildFallbackLessonPages(
         .sort((a, b) => Number(a.page) - Number(b.page));
 
     const selected = inRange.length > 0
-        ? inRange.slice(0, 10)
+        ? inRange
         : [{ page: pageWindow.page_from, excerpt: summary || content, has_visual_hints: false } as PdfPageFragment];
 
     return selected.map((fragment, index) => {
@@ -1098,10 +1129,34 @@ function buildFallbackLessonPages(
 
         const ai_explanation = sanitizeSummary(
             language === 'UZ'
-                ? `1️⃣ Bu sahifada asosiy g‘oya bozor konteksti ichida ochiladi: narx qayerda bosim yig‘adi va qayerda qaror nuqtasi hosil bo‘ladi. 2️⃣ Smart Money odatda likvidlik turgan zonaga narxni olib boradi, keyin tasdiq signalidan keyin harakatni davom ettiradi. Shu sababli sahifadagi har bir triggerni kontekstdan ajratmasdan o‘qing. 3️⃣ Amaliyotda bu modelni chartga ko‘chirayotganda kirishdan oldin invalidation va risk limitini yozib chiqing; impulsdan keyin quvish eng ko‘p uchraydigan xatodir. 4️⃣ Yangi boshlovchi odatda ${commonMistake || 'tasdiqsiz kirish'} tufayli xato qiladi. Har safar setupni tekshirish uchun mini-checklistdan foydalaning: kontekst, likvidlik, tasdiq, risk, target.`
-                : `1️⃣ На этой странице ключевая идея раскрывается через контекст: где цена накапливает давление и где формируется точка решения. 2️⃣ Логика Smart Money обычно строится так: цена подводится к зоне ликвидности, затем после подтверждения запускается движение. Поэтому любой триггер на странице нужно читать только вместе с контекстом. 3️⃣ При переносе модели на график сначала фиксируйте invalidation и лимит риска; входы на эмоции после импульса чаще всего заканчиваются ошибкой. 4️⃣ Новичок обычно теряет деньги из-за ошибки "${commonMistake || 'вход без подтверждения'}". Используйте чеклист: контекст, ликвидность, подтверждение, риск, цель.`,
+                ? `🧠 Bu sahifada muallif setupning qayerda kuch yig‘ishini va signal qayerda kuchli bo‘lishini ko‘rsatadi. Bu joyda asosiy g‘oya — narx harakati tasodifiy emas, u likvidlik va strukturaviy kontekstga bog‘liq.
+
+💡 Konseptning markazi shunda: Smart Money ko‘pincha buyurtmalar to‘plangan hududni tekshiradi, keyin tasdiq paydo bo‘lsa impulsni davom ettiradi. Shuning uchun sahifadagi triggerni alohida emas, oldingi kontekst bilan birga o‘qish kerak.
+
+🔥 Amaliy mexanika: chartda avval likvidlik olinishi, keyin qayta tasdiq bo‘lsa kirish mantiqan kuchayadi. Agar bu zanjir bo‘lmasa, signalning sifati pasayadi. Demak qaror ketma-ketligi: kontekst → likvidlik → tasdiq → risk boshqaruvi.
+
+⚠️ Yangi boshlovchi ko‘pincha ${commonMistake || 'tasdiqsiz kirish'} tufayli xato qiladi. Bu xatodan qochish uchun bir xil mini-checklist ishlating: bozor strukturasi bormi, likvidlik qayerda, tasdiq qanday, invalidation qayerda, target mantiqiymi.
+
+📌 Qo‘llash: shu sahifani chartga ko‘chirganda 1) setupni toping, 2) tasdiqni kuting, 3) kirish nuqtasini belgilang, 4) stopni invalidation ortiga qo‘ying, 5) kamida 1:2 R:R bilan target tanlang.`
+                : `🧠 На этой странице автор показывает, где сетап набирает силу и в какой точке сигнал становится рабочим. Ключевая идея — движение цены не случайно, а связано со структурой и ликвидностью.
+
+💡 Концепт страницы строится так: Smart Money сначала приводит цену к зоне скопления ордеров, затем после подтверждения запускает продолжение движения. Поэтому сигнал нужно читать не отдельно, а внутри контекста, который был до него.
+
+🔥 Глубокая механика: если на графике есть снятие ликвидности и последующее подтверждение, вероятность сценария повышается. Если этой связки нет, сигнал слабее. Практическая цепочка принятия решения: контекст → ликвидность → подтверждение → риск-план.
+
+⚠️ Новичок чаще всего теряет деньги из-за ошибки "${commonMistake || 'вход без подтверждения'}". Чтобы убрать эту ошибку, используйте постоянный checklist: структура рынка, зона ликвидности, триггер, invalidation, цель.
+
+📌 Применение на графике: 1) найдите setup, 2) дождитесь подтверждения, 3) определите вход, 4) поставьте стоп за invalidation, 5) берите цель только при разумном R:R (от 1:2).`,
             '',
-            6200
+            9000
+        );
+
+        const alternative_explanation = sanitizeSummary(
+            language === 'UZ'
+                ? `Oddiy tilda: bu sahifa sizga shuni aytadi — narxga shunchaki qaramang, avval kontekstni ko‘ring. Keyin likvidlik olinganini va tasdiq kelganini kuting. Shundan keyingina kirish haqida o‘ylang. Bu yondashuv hissiy savdoni kamaytiradi.`
+                : 'Простое объяснение: эта страница учит не входить по первой эмоции. Сначала смотрите контекст, затем снятие ликвидности, затем подтверждение. Только после этого рассматривайте вход. Такой порядок уменьшает количество убыточных импульсных сделок.',
+            '',
+            7000
         );
 
         const notes = sanitizeSummary(
@@ -1125,6 +1180,7 @@ function buildFallbackLessonPages(
             page_image: `page:${page}`,
             page_text: sanitizeSummary(fragment.excerpt || summary || content, summary || content, 1800),
             ai_explanation,
+            alternative_explanation,
             notes,
             practical_interpretation,
             key_terms: keyPoints.slice(0, 5),
@@ -1133,21 +1189,32 @@ function buildFallbackLessonPages(
     });
 }
 
-function collectShortPageExplanations(
+function collectWeakPageExplanations(
     pages: LessonPageBlock[],
     language: 'RU' | 'UZ',
-    minLength = 900
-): Array<{ language: 'RU' | 'UZ'; page_number: number; length: number }> {
+    minLength = 1500,
+    minParagraphs = 4
+): Array<{ language: 'RU' | 'UZ'; page_number: number; length: number; paragraphs: number; has_alternative: boolean }> {
     return (pages || [])
         .map((item) => {
-            const text = String(item?.ai_explanation || '').replace(/\s+/g, ' ').trim();
+            const rawText = String(item?.ai_explanation || '').trim();
+            const text = rawText.replace(/\s+/g, ' ').trim();
+            const paragraphs = rawText
+                .split(/\n\s*\n|(?=(?:1️⃣|2️⃣|3️⃣|4️⃣|5️⃣|🧠|💡|⚠️|🔥|📌))/g)
+                .map((part) => part.trim())
+                .filter(Boolean)
+                .length;
+            const has_alternative = !!String(item?.alternative_explanation || '').trim();
+
             return {
                 language,
                 page_number: Math.max(1, Number(item?.page_number) || 1),
                 length: text.length,
+                paragraphs,
+                has_alternative,
             };
         })
-        .filter((item) => item.length < minLength);
+        .filter((item) => item.length < minLength || item.paragraphs < minParagraphs || !item.has_alternative);
 }
 
 function normalizeStepType(value: any): LessonStepBlock['step_type'] {
@@ -1599,19 +1666,27 @@ const LESSON_PAGE_MENTOR_SYSTEM_PROMPT = `Ты — элитный AI-наста�
 Твоя задача — создать lesson в формате page-by-page reading experience: каждая страница книги получает отдельный глубокий AI-разбор.
 
 Критические требования к каждому page block:
-1) ai_explanation не должен быть коротким: минимум 3-4 крупных абзаца.
-2) Обязательно раскрывай механику цены, логику крупного капитала, ликвидность и ловушки толпы.
-3) Разбор каждой страницы должен включать:
+1) ai_explanation не должен быть коротким: минимум 4-6 крупных абзацев.
+2) ai_explanation должен быть структурирован по блокам:
+   - Что показано на странице
+   - Какую концепцию объясняет автор
+   - Глубокая механика Smart Money / ликвидности
+   - Простая аналогия из жизни
+   - Где новички делают ошибку
+   - Как применять это на графике
+3) Обязательно раскрывай механику цены, логику крупного капитала, ликвидность и ловушки толпы.
+4) Разбор каждой страницы должен включать:
    - что происходит на странице,
    - главную идею,
    - термины,
    - скрытую механику,
    - практическое применение,
    - типичные ошибки новичков.
-4) Используй осмысленные акценты: 🧠 💡 ⚠️ 📌 🔥 (умеренно, без спама).
-5) Сохраняй формат наставника: профессионально, спокойно, понятно, практично.
-6) Для notes давай 3-6 коротких практических пунктов.
-7) Для practical_interpretation давай реальный алгоритм 1-5 (setup, confirmation, entry, stop, target).
+5) Используй осмысленные акценты: 🧠 💡 ⚠️ 🔥 (умеренно, без спама).
+6) Сохраняй формат наставника: профессионально, спокойно, понятно, практично.
+7) Для notes давай 3-6 коротких практических пунктов.
+8) Для practical_interpretation давай реальный алгоритм 1-5 (setup, confirmation, entry, stop, target).
+9) Для каждого page block обязательно добавляй alternative_explanation: более простую версию объяснения с примерами и аналогиями.
 
 Язык:
 - lesson_pages_ru полностью на русском.
@@ -1685,8 +1760,8 @@ Return ONLY valid JSON with this shape:
   "homework_uz": "homework in Uzbek",
   "quiz_ru": [{"question":"...", "options":["..."], "correct_index":0, "explanation":"..."}],
   "quiz_uz": [{"question":"...", "options":["..."], "correct_index":0, "explanation":"..."}],
-  "lesson_pages_ru": [{"page_number":1,"page_image":"page:1","page_text":"...","ai_explanation":"...","notes":"...","practical_interpretation":"...","key_terms":["..."],"common_mistakes":["..."]}],
-  "lesson_pages_uz": [{"page_number":1,"page_image":"page:1","page_text":"...","ai_explanation":"...","notes":"...","practical_interpretation":"...","key_terms":["..."],"common_mistakes":["..."]}],
+  "lesson_pages_ru": [{"page_number":1,"page_image":"page:1","page_text":"...","ai_explanation":"...","alternative_explanation":"...","notes":"...","practical_interpretation":"...","key_terms":["..."],"common_mistakes":["..."]}],
+  "lesson_pages_uz": [{"page_number":1,"page_image":"page:1","page_text":"...","ai_explanation":"...","alternative_explanation":"...","notes":"...","practical_interpretation":"...","key_terms":["..."],"common_mistakes":["..."]}],
   "conclusion_ru": "lesson conclusion in Russian",
   "conclusion_uz": "lesson conclusion in Uzbek",
   "additional_ru": "optional useful clarifications in Russian",
@@ -1708,9 +1783,10 @@ Rules:
 - lesson_pages_ru and lesson_pages_uz must contain page-by-page blocks sorted by page_number.
 - Use 3-12 page blocks per lesson (based on available page hints for this lesson range).
 - Every page_number must be unique.
-- For every page block include: page_number, page_image, page_text, ai_explanation, notes, practical_interpretation, key_terms, common_mistakes.
+- For every page block include: page_number, page_image, page_text, ai_explanation, alternative_explanation, notes, practical_interpretation, key_terms, common_mistakes.
 - page_image must reference its page: "page:<page_number>" when explicit image path is unavailable.
-- ai_explanation for every page must be detailed (3-4+ large paragraphs) and at least 900 characters.
+- ai_explanation for every page must be detailed (4-6 large paragraphs) and at least 1500 characters.
+- alternative_explanation must be simpler than ai_explanation and include practical analogy/examples.
 - notes must contain 3-6 practical bullets (RU for lesson_pages_ru, UZ Latin for lesson_pages_uz).
 - practical_interpretation must be a numbered 1-5 trading algorithm: setup, confirmation, entry, stop, target.`;
 
@@ -1719,7 +1795,7 @@ Rules:
         'meta-llama/llama-3.1-70b-instruct',
         'meta-llama/llama-3.1-8b-instruct:free',
     ];
-    const minPageExplanationChars = 900;
+    const minPageExplanationChars = 1500;
     const maxGenerationAttemptsPerModel = 2;
 
     let lastError = '';
@@ -1727,7 +1803,7 @@ Rules:
         for (let attempt = 1; attempt <= maxGenerationAttemptsPerModel; attempt++) {
             try {
                 const regenerationTail = attempt > 1
-                    ? `\n\nREGENERATION MODE: previous output was too short or invalid.\nRegenerate the FULL JSON.\nHard requirement: every ai_explanation in lesson_pages_ru and lesson_pages_uz must be >= ${minPageExplanationChars} characters after trimming.`
+                    ? `\n\nREGENERATION MODE: previous output was too short or invalid.\nRegenerate the FULL JSON.\nHard requirements for each page block:\n- ai_explanation >= ${minPageExplanationChars} characters\n- ai_explanation has at least 4 paragraphs\n- alternative_explanation is non-empty.`
                     : '';
 
                 const data = await openRouterService.chat(model, [
@@ -1818,13 +1894,17 @@ Rules:
                 const rememberRu = [conclusionRu, additionalRu, keyPointsRu.slice(0, 2).join(' | ')].filter(Boolean).join(' ');
                 const rememberUz = [conclusionUz, additionalUz, keyPointsUz.slice(0, 2).join(' | ')].filter(Boolean).join(' ');
 
-                const minPageBlocks = Math.max(
-                    1,
-                    Math.min(
-                        3,
-                        Math.max(lessonPageFragments.length, Math.max(1, pageWindow.page_to - pageWindow.page_from + 1))
-                    )
-                );
+                const expectedPages = (() => {
+                    const fromFragments = Array.from(
+                        new Set((lessonPageFragments || []).map((item) => Math.max(1, Number(item.page) || 1)))
+                    ).sort((a, b) => a - b);
+                    if (fromFragments.length > 0) return fromFragments;
+
+                    const pages: number[] = [];
+                    for (let p = pageWindow.page_from; p <= pageWindow.page_to; p++) pages.push(p);
+                    return pages.length > 0 ? pages : [Math.max(1, pageWindow.page_from)];
+                })();
+                const minPageBlocks = Math.max(1, expectedPages.length);
 
                 const lessonPagesRuRaw = normalizeLessonPages(
                     parsed?.lesson_pages_ru,
@@ -1841,40 +1921,68 @@ Rules:
                     lessonPageFragments
                 );
 
-                const lessonPagesRu = lessonPagesRuRaw.length >= minPageBlocks
-                    ? lessonPagesRuRaw
-                    : buildFallbackLessonPages(
-                        'RU',
-                        summaryRu,
-                        contentRu,
-                        keyPointsRu,
-                        practiceRu,
-                        commonMistakesRu,
-                        lessonPageFragments,
-                        pageWindow
-                    );
+                const fallbackPagesRu = buildFallbackLessonPages(
+                    'RU',
+                    summaryRu,
+                    contentRu,
+                    keyPointsRu,
+                    practiceRu,
+                    commonMistakesRu,
+                    lessonPageFragments,
+                    pageWindow
+                );
+                const fallbackPagesUz = buildFallbackLessonPages(
+                    'UZ',
+                    summaryUz,
+                    contentUz,
+                    keyPointsUz,
+                    practiceUz,
+                    commonMistakesUz,
+                    lessonPageFragments,
+                    pageWindow
+                );
 
-                const lessonPagesUz = lessonPagesUzRaw.length >= minPageBlocks
-                    ? lessonPagesUzRaw
-                    : buildFallbackLessonPages(
-                        'UZ',
-                        summaryUz,
-                        contentUz,
-                        keyPointsUz,
-                        practiceUz,
-                        commonMistakesUz,
-                        lessonPageFragments,
-                        pageWindow
-                    );
+                const mergePages = (primary: LessonPageBlock[], fallback: LessonPageBlock[]): LessonPageBlock[] => {
+                    const byPage = new Map<number, LessonPageBlock>();
 
-                const shortPagesRu = collectShortPageExplanations(lessonPagesRu, 'RU', minPageExplanationChars);
-                const shortPagesUz = collectShortPageExplanations(lessonPagesUz, 'UZ', minPageExplanationChars);
-                if (shortPagesRu.length > 0 || shortPagesUz.length > 0) {
-                    const details = [...shortPagesRu, ...shortPagesUz]
+                    for (const item of fallback || []) {
+                        const page = Math.max(1, Number(item.page_number) || 1);
+                        if (!byPage.has(page)) byPage.set(page, item);
+                    }
+
+                    for (const item of primary || []) {
+                        const page = Math.max(1, Number(item.page_number) || 1);
+                        byPage.set(page, item);
+                    }
+
+                    return expectedPages
+                        .map((page) => byPage.get(page))
+                        .filter(Boolean) as LessonPageBlock[];
+                };
+
+                const lessonPagesRuMerged = mergePages(lessonPagesRuRaw, fallbackPagesRu);
+                const lessonPagesUzMerged = mergePages(lessonPagesUzRaw, fallbackPagesUz);
+
+                const lessonPagesRu = lessonPagesRuMerged.length >= minPageBlocks
+                    ? lessonPagesRuMerged
+                    : fallbackPagesRu;
+
+                const lessonPagesUz = lessonPagesUzMerged.length >= minPageBlocks
+                    ? lessonPagesUzMerged
+                    : fallbackPagesUz;
+
+                if (lessonPagesRu.length < minPageBlocks || lessonPagesUz.length < minPageBlocks) {
+                    throw new Error(`not enough page blocks generated: expected ${minPageBlocks}, got RU=${lessonPagesRu.length}, UZ=${lessonPagesUz.length}`);
+                }
+
+                const weakPagesRu = collectWeakPageExplanations(lessonPagesRu, 'RU', minPageExplanationChars, 4);
+                const weakPagesUz = collectWeakPageExplanations(lessonPagesUz, 'UZ', minPageExplanationChars, 4);
+                if (weakPagesRu.length > 0 || weakPagesUz.length > 0) {
+                    const details = [...weakPagesRu, ...weakPagesUz]
                         .slice(0, 16)
-                        .map((item) => `${item.language}#page${item.page_number}:${item.length}`)
+                        .map((item) => `${item.language}#page${item.page_number}:len=${item.length},p=${item.paragraphs},alt=${item.has_alternative ? 1 : 0}`)
                         .join(', ');
-                    throw new Error(`page ai_explanation too short (<${minPageExplanationChars}) for pages: ${details}`);
+                    throw new Error(`page blocks too weak (len/paragraphs/alt) for pages: ${details}`);
                 }
 
                 const lessonStepsRuRaw = normalizeLessonSteps(parsed?.lesson_steps_ru, 'RU', pageWindow.page_from, pageWindow.page_to);
@@ -2100,6 +2208,12 @@ async function upsertCourseModuleLessons(
             const summary = sanitizeSummary(lesson.summary, classification.summary);
             const content = lesson.sourceText?.trim() || summary;
             const existing = byLowerTitle.get(title.toLowerCase());
+            const lessonIdForStorage = existing?.id || crypto.randomUUID();
+
+            const lessonPagesRuWithRoutes = attachLessonPageImageRoutes(lessonIdForStorage, lesson.structured.lesson_pages_ru);
+            const lessonPagesUzWithRoutes = attachLessonPageImageRoutes(lessonIdForStorage, lesson.structured.lesson_pages_uz);
+            const lessonStepsRuWithRoutes = attachLessonStepImageRoutes(lessonIdForStorage, lesson.structured.lesson_steps_ru);
+            const lessonStepsUzWithRoutes = attachLessonStepImageRoutes(lessonIdForStorage, lesson.structured.lesson_steps_uz);
 
             const keyPointsJson = {
                 RU: lesson.structured.key_points_ru,
@@ -2130,12 +2244,12 @@ async function upsertCourseModuleLessons(
                 UZ: lesson.structured.quiz_uz,
             };
             const lessonPagesJson = {
-                RU: lesson.structured.lesson_pages_ru,
-                UZ: lesson.structured.lesson_pages_uz,
+                RU: lessonPagesRuWithRoutes,
+                UZ: lessonPagesUzWithRoutes,
             };
             const lessonStepsJson = {
-                RU: lesson.structured.lesson_steps_ru,
-                UZ: lesson.structured.lesson_steps_uz,
+                RU: lessonStepsRuWithRoutes,
+                UZ: lessonStepsUzWithRoutes,
             };
             const visualBlocksJson = lesson.structured.visual_blocks;
             const lessonTestJson = {
@@ -2151,7 +2265,7 @@ async function upsertCourseModuleLessons(
                 UZ: lesson.structured.additional_uz,
             };
 
-            let lessonId = existing?.id || '';
+            let lessonId = lessonIdForStorage;
             if (existing) {
                 try {
                     await client.query(
@@ -2211,14 +2325,14 @@ async function upsertCourseModuleLessons(
                             lesson.structured.difficulty_level,
                             JSON.stringify(conclusionJson),
                             JSON.stringify(additionalNotesJson),
-                            existing.id,
+                            lessonIdForStorage,
                         ]
                     );
                 } catch (e: any) {
                     if (!isPgUndefinedColumnError(e)) throw e;
                     await client.query(
                         `UPDATE lessons SET content = $1, updated_at = NOW() WHERE id = $2`,
-                        [content, existing.id]
+                        [content, lessonIdForStorage]
                     );
                 }
             } else {
@@ -2249,7 +2363,7 @@ async function upsertCourseModuleLessons(
                          )
                          RETURNING id`,
                         [
-                            crypto.randomUUID(),
+                            lessonIdForStorage,
                             moduleId,
                             title,
                             content,
@@ -2288,7 +2402,7 @@ async function upsertCourseModuleLessons(
                         `INSERT INTO lessons (id, module_id, title, content, sort_order, created_at, updated_at)
                          VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
                          RETURNING id`,
-                        [crypto.randomUUID(), moduleId, title, content, maxSort]
+                        [lessonIdForStorage, moduleId, title, content, maxSort]
                     );
                     lessonId = created.rows[0].id;
                 }
@@ -2326,6 +2440,8 @@ export async function ingestPdf(
         let totalPages = 1;
         let pageFragments: PdfPageFragment[] = [];
         let hasVisualHints = false;
+        let pageImagesGenerated = 0;
+        let pageImagesAvailable = 0;
         try {
             const extracted = await extractPdfText(filePath);
             extractedText = extracted.aiText;
@@ -2346,6 +2462,16 @@ export async function ingestPdf(
             pageFragments = pageFragments.length
                 ? pageFragments
                 : [{ page: 1, excerpt: extractedText.substring(0, 320), has_visual_hints: false }];
+        }
+
+        try {
+            if (log) log.info(`[Ingestion] Rendering PDF pages into images: ${originalFileName}`);
+            const renderedPages = await renderPdfPagesToImages(filePath, undefined, log);
+            totalPages = Math.max(totalPages, renderedPages.totalPages);
+            pageImagesGenerated = renderedPages.renderedPages.length;
+            pageImagesAvailable = Object.keys(renderedPages.imagePathsByPage).length;
+        } catch (renderErr: any) {
+            if (log) log.warn(`[Ingestion] Page image rendering failed: ${renderErr.message}`);
         }
 
         // 2. AI Classification
@@ -2395,6 +2521,8 @@ export async function ingestPdf(
                     lesson_titles: lessonPlan.lessons.map(l => l.title),
                     total_pages: totalPages,
                     has_visual_hints: hasVisualHints,
+                    page_images_generated: pageImagesGenerated,
+                    page_images_available: pageImagesAvailable,
                     page_blocks_per_lesson: enrichedLessonPlan.lessons.map((l) => l.structured.lesson_pages_ru.length),
                     page_numbers_per_lesson: enrichedLessonPlan.lessons.map((l) =>
                         (l.structured.lesson_pages_ru || []).map((p) => p.page_number)
