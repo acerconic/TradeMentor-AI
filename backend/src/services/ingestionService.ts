@@ -961,6 +961,24 @@ function hasStrongJourneyFlow(steps: LessonStepBlock[]): boolean {
     return types.includes('intro') && visualCount >= 2 && types.includes('quiz') && types.includes('next');
 }
 
+function collectShortStepExplanations(
+    steps: LessonStepBlock[],
+    language: 'RU' | 'UZ',
+    minLength = 1200
+): Array<{ language: 'RU' | 'UZ'; step_id: string; step_index: number; length: number }> {
+    return (steps || [])
+        .map((step, index) => {
+            const text = String(step?.ai_explanation || step?.explanation || '').replace(/\s+/g, ' ').trim();
+            return {
+                language,
+                step_id: String(step?.step_id || `step_${index + 1}`),
+                step_index: Number.isInteger(Number(step?.step_index)) ? Math.max(1, Number(step.step_index)) : index + 1,
+                length: text.length,
+            };
+        })
+        .filter((item) => item.length < minLength);
+}
+
 function normalizeStepType(value: any): LessonStepBlock['step_type'] {
     const raw = String(value || '').toLowerCase();
     if (raw === 'visual') return 'visual';
@@ -1012,14 +1030,17 @@ function normalizeLessonSteps(
                 : 'Этот шаг помогает применить рыночную логику на практике.';
 
             const page_image = sanitizeSummary(String(item?.page_image || `page:${page_from}`), `page:${page_from}`, 180);
-            const page_text = sanitizeSummary(String(item?.page_text || item?.source_excerpt || ''), '', 900);
-            const ai_explanation = sanitizeSummary(String(item?.ai_explanation || item?.explanation || ''), explanationFallback, 2600);
-            const notes = sanitizeSummary(String(item?.notes || item?.what_to_notice || ''), '', 560);
-            const practical_interpretation = sanitizeSummary(String(item?.practical_interpretation || ''), '', 1200);
+            const page_text = sanitizeSummary(String(item?.page_text || item?.source_excerpt || ''), '', 1200);
+            const notesRaw = Array.isArray(item?.notes)
+                ? item.notes.slice(0, 6).map((part: any) => String(part || '').trim()).filter(Boolean).join(' | ')
+                : String(item?.notes || '');
+            const ai_explanation = sanitizeSummary(String(item?.ai_explanation || item?.explanation || ''), explanationFallback, 5200);
+            const notes = sanitizeSummary(String(notesRaw || item?.what_to_notice || ''), '', 980);
+            const practical_interpretation = sanitizeSummary(String(item?.practical_interpretation || ''), '', 2000);
 
-            const source_excerpt = sanitizeSummary(String(item?.source_excerpt || page_text), page_text, 560);
-            const explanation = sanitizeSummary(String(item?.explanation || ai_explanation), ai_explanation, 2200);
-            const what_to_notice = sanitizeSummary(String(item?.what_to_notice || notes), notes, 560);
+            const source_excerpt = sanitizeSummary(String(item?.source_excerpt || page_text), page_text, 760);
+            const explanation = sanitizeSummary(String(item?.explanation || ai_explanation), ai_explanation, 5000);
+            const what_to_notice = sanitizeSummary(String(item?.what_to_notice || notes), notes, 980);
 
             return {
                 step_index,
@@ -1053,9 +1074,13 @@ function enrichStepBlocksForStorage(steps: LessonStepBlock[], language: 'RU' | '
             const page_from = Math.max(1, Number(step.page_from) || 1);
             const page_to = Math.max(page_from, Number(step.page_to) || page_from);
 
-            const page_text = sanitizeSummary(String(step.page_text || step.source_excerpt || ''), '', 900);
-            const ai_explanation = sanitizeSummary(String(step.ai_explanation || step.explanation || ''), explanationFallback, 2600);
-            const notes = sanitizeSummary(String(step.notes || step.what_to_notice || ''), '', 560);
+            const page_text = sanitizeSummary(String(step.page_text || step.source_excerpt || ''), '', 1200);
+            const stepNotesRaw: any = (step as any)?.notes;
+            const notesRaw = Array.isArray(stepNotesRaw)
+                ? stepNotesRaw.slice(0, 6).map((part: any) => String(part || '').trim()).filter(Boolean).join(' | ')
+                : String(stepNotesRaw || '');
+            const ai_explanation = sanitizeSummary(String(step.ai_explanation || step.explanation || ''), explanationFallback, 5200);
+            const notes = sanitizeSummary(String(notesRaw || step.what_to_notice || ''), '', 980);
 
             const practicalFallback = step.step_type === 'practice'
                 ? String(step.source_excerpt || ai_explanation)
@@ -1063,12 +1088,12 @@ function enrichStepBlocksForStorage(steps: LessonStepBlock[], language: 'RU' | '
             const practical_interpretation = sanitizeSummary(
                 String(step.practical_interpretation || practicalFallback),
                 '',
-                1200
+                2000
             );
 
-            const source_excerpt = sanitizeSummary(String(step.source_excerpt || page_text), page_text, 560);
-            const explanation = sanitizeSummary(String(step.explanation || ai_explanation), ai_explanation, 2200);
-            const what_to_notice = sanitizeSummary(String(step.what_to_notice || notes), notes, 560);
+            const source_excerpt = sanitizeSummary(String(step.source_excerpt || page_text), page_text, 760);
+            const explanation = sanitizeSummary(String(step.explanation || ai_explanation), ai_explanation, 5000);
+            const what_to_notice = sanitizeSummary(String(step.what_to_notice || notes), notes, 980);
 
             return {
                 ...step,
@@ -1399,6 +1424,42 @@ function buildVisualBlocks(
     return blocks.slice(0, 8);
 }
 
+const LESSON_STEP_MENTOR_SYSTEM_PROMPT = `Ты — элитный AI-наставник по трейдингу и аналитик Smart Money.
+Твоя задача — писать ai_explanation для шагов урока так, как объясняют в дорогих приватных трейдерских сообществах.
+
+Критические требования к ai_explanation для каждого шага:
+1) Запрещено писать коротко: объяснение должно быть длинным, глубоким и практическим.
+2) Минимум 3-4 крупных абзаца и не менее 1200 символов на каждый ai_explanation.
+3) Обязательно раскрывай:
+   - механику движения цены,
+   - логику крупного капитала,
+   - где находится ликвидность,
+   - где ловушки для толпы.
+4) Используй структуру из 5 блоков:
+   1️⃣ Суть концепта
+   2️⃣ Глубокая механика Smart Money
+   3️⃣ Простая аналогия из жизни
+   4️⃣ Ловушки для толпы
+   5️⃣ Как читать это на графике
+5) Используй маркеры по смыслу:
+   - 🔥 сильные инсайты,
+   - 🧠 логика рынка,
+   - 💡 ключевые идеи,
+   - ⚠️ ловушки новичков.
+6) Ключевые термины выделяй **жирным**.
+7) notes пиши как 3-6 коротких практических пунктов.
+8) practical_interpretation пиши как реальный алгоритм 1-5:
+   1. что искать на графике
+   2. как подтвердить сигнал
+   3. где вход
+   4. где стоп
+   5. где цель
+
+Важно:
+- Для lesson_steps_ru пиши на русском.
+- Для lesson_steps_uz пиши на узбекском (Latin).
+- Верни только валидный JSON согласно запрошенной схеме.`;
+
 async function generateStructuredLessonContent(
     lesson: LessonPlanItem,
     classification: AIClassification,
@@ -1499,181 +1560,208 @@ Rules:
 - For every step include: step_index, page_image, page_text, ai_explanation, notes, practical_interpretation.
 - page_image can be "page:<number>" when there is no extracted bitmap file.
 - If explicit images are missing, still produce page-fragment visual steps using available page context.
-- step explanations should be detailed (3-6 meaningful sentences), not one-liners.`;
+- ai_explanation in every step must follow the 5-part mentor structure from the system prompt.
+- ai_explanation must be long (minimum 3-4 large paragraphs), deep, and never a short note.
+- ai_explanation for every step must be at least 1200 characters after trimming.
+- ai_explanation must explain Smart Money mechanics, liquidity logic, institutional intent, and crowd traps.
+- notes must contain 3-6 practical bullets (RU for lesson_steps_ru, UZ Latin for lesson_steps_uz).
+- practical_interpretation must be a numbered 1-5 trading algorithm: setup, confirmation, entry, stop, target.`;
 
     const models = [
         'meta-llama/llama-3.3-70b-instruct',
         'meta-llama/llama-3.1-70b-instruct',
         'meta-llama/llama-3.1-8b-instruct:free',
     ];
+    const minStepExplanationChars = 1200;
+    const maxGenerationAttemptsPerModel = 2;
 
     let lastError = '';
     for (const model of models) {
-        try {
-            const data = await openRouterService.chat(model, [
-                { role: 'system', content: 'Return only valid JSON. No markdown, no prose.' },
-                { role: 'user', content: prompt }
-            ], undefined);
+        for (let attempt = 1; attempt <= maxGenerationAttemptsPerModel; attempt++) {
+            try {
+                const regenerationTail = attempt > 1
+                    ? `\n\nREGENERATION MODE: previous output was too short or invalid.\nRegenerate the FULL JSON.\nHard requirement: every ai_explanation in lesson_steps_ru and lesson_steps_uz must be >= ${minStepExplanationChars} characters after trimming.`
+                    : '';
 
-            const raw = data?.choices?.[0]?.message?.content || '';
-            const jsonMatch = raw.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) throw new Error('No JSON in lesson generation response');
+                const data = await openRouterService.chat(model, [
+                    { role: 'system', content: LESSON_STEP_MENTOR_SYSTEM_PROMPT },
+                    { role: 'user', content: `${prompt}${regenerationTail}` }
+                ], undefined, { temperature: 0.9, max_tokens: 3000 });
 
-            const parsed = JSON.parse(jsonMatch[0]);
+                const raw = data?.choices?.[0]?.message?.content || '';
+                const jsonMatch = raw.match(/\{[\s\S]*\}/);
+                if (!jsonMatch) throw new Error('No JSON in lesson generation response');
 
-            const lessonTypeRaw = String(parsed?.lesson_type || '').toLowerCase();
-            const lesson_type: StructuredLessonContent['lesson_type'] =
-                lessonTypeRaw === 'strategy' || lessonTypeRaw === 'chart' || lessonTypeRaw === 'glossary' || lessonTypeRaw === 'psychology'
-                    ? lessonTypeRaw
-                    : 'theory';
+                const parsed = JSON.parse(jsonMatch[0]);
 
-            const difficultyRaw = String(parsed?.difficulty_level || '').toLowerCase();
-            const difficulty_level: StructuredLessonContent['difficulty_level'] =
-                difficultyRaw === 'advanced'
-                    ? 'Advanced'
-                    : difficultyRaw === 'intermediate'
-                        ? 'Intermediate'
-                        : 'Beginner';
+                const lessonTypeRaw = String(parsed?.lesson_type || '').toLowerCase();
+                const lesson_type: StructuredLessonContent['lesson_type'] =
+                    lessonTypeRaw === 'strategy' || lessonTypeRaw === 'chart' || lessonTypeRaw === 'glossary' || lessonTypeRaw === 'psychology'
+                        ? lessonTypeRaw
+                        : 'theory';
 
-            const source_section = sanitizeSummary(parsed?.source_section, `${classification.module_title} / ${lesson.title}`, 220);
+                const difficultyRaw = String(parsed?.difficulty_level || '').toLowerCase();
+                const difficulty_level: StructuredLessonContent['difficulty_level'] =
+                    difficultyRaw === 'advanced'
+                        ? 'Advanced'
+                        : difficultyRaw === 'intermediate'
+                            ? 'Intermediate'
+                            : 'Beginner';
 
-            const summaryRu = sanitizeSummary(parsed?.summary_ru, lesson.summary || classification.summary, 1200);
-            const summaryUz = sanitizeSummary(parsed?.summary_uz, summaryRu, 1200);
+                const source_section = sanitizeSummary(parsed?.source_section, `${classification.module_title} / ${lesson.title}`, 220);
 
-            const contentSource = sanitizeSummary(parsed?.content_source, lesson.sourceText || lesson.summary || classification.summary, 15000);
-            const contentRu = sanitizeSummary(parsed?.content_ru, summaryRu, 18000);
-            const contentUz = sanitizeSummary(parsed?.content_uz, summaryUz, 18000);
+                const summaryRu = sanitizeSummary(parsed?.summary_ru, lesson.summary || classification.summary, 1200);
+                const summaryUz = sanitizeSummary(parsed?.summary_uz, summaryRu, 1200);
 
-            const keyPointsRuRaw = normalizeStringArray(parsed?.key_points_ru, 15);
-            const keyPointsUzRaw = normalizeStringArray(parsed?.key_points_uz, 15);
+                const contentSource = sanitizeSummary(parsed?.content_source, lesson.sourceText || lesson.summary || classification.summary, 15000);
+                const contentRu = sanitizeSummary(parsed?.content_ru, summaryRu, 18000);
+                const contentUz = sanitizeSummary(parsed?.content_uz, summaryUz, 18000);
 
-            const keyPointsRu = ensureMinItems(
-                keyPointsRuRaw,
-                4,
-                fallbackKeyPoints('RU', lesson.title, summaryRu)
-            );
-            const keyPointsUz = ensureMinItems(
-                keyPointsUzRaw,
-                4,
-                fallbackKeyPoints('UZ', lesson.title, summaryUz)
-            );
+                const keyPointsRuRaw = normalizeStringArray(parsed?.key_points_ru, 15);
+                const keyPointsUzRaw = normalizeStringArray(parsed?.key_points_uz, 15);
 
-            const glossaryRuRaw = normalizeGlossary(parsed?.glossary_ru);
-            const glossaryUzRaw = normalizeGlossary(parsed?.glossary_uz);
-
-            const glossaryRu = ensureMinGlossary(glossaryRuRaw, 3, fallbackGlossary('RU'));
-            const glossaryUz = ensureMinGlossary(glossaryUzRaw, 3, fallbackGlossary('UZ'));
-
-            const practiceRu = sanitizeSummary(parsed?.practice_ru, summaryRu, 3000);
-            const practiceUz = sanitizeSummary(parsed?.practice_uz, summaryUz, 3000);
-
-            const commonMistakesRuRaw = normalizeStringArray(parsed?.common_mistakes_ru, 12);
-            const commonMistakesUzRaw = normalizeStringArray(parsed?.common_mistakes_uz, 12);
-            const selfCheckRuRaw = normalizeStringArray(parsed?.self_check_ru, 10);
-            const selfCheckUzRaw = normalizeStringArray(parsed?.self_check_uz, 10);
-
-            const commonMistakesRu = ensureMinItems(commonMistakesRuRaw, 3, fallbackCommonMistakes('RU'));
-            const commonMistakesUz = ensureMinItems(commonMistakesUzRaw, 3, fallbackCommonMistakes('UZ'));
-            const selfCheckRu = ensureMinItems(selfCheckRuRaw, 3, fallbackSelfCheck('RU', lesson.title));
-            const selfCheckUz = ensureMinItems(selfCheckUzRaw, 3, fallbackSelfCheck('UZ', lesson.title));
-
-            const homeworkRuRaw = sanitizeSummary(parsed?.homework_ru, '', 3000);
-            const homeworkUzRaw = sanitizeSummary(parsed?.homework_uz, '', 3000);
-
-            const homeworkRu = homeworkRuRaw || fallbackHomework('RU', lesson.title, practiceRu);
-            const homeworkUz = homeworkUzRaw || fallbackHomework('UZ', lesson.title, practiceUz);
-
-            const quizRuRaw = normalizeQuiz(parsed?.quiz_ru);
-            const quizUzRaw = normalizeQuiz(parsed?.quiz_uz);
-
-            const quizRu = ensureMinQuiz(quizRuRaw, 3, fallbackQuiz('RU', keyPointsRu));
-            const quizUz = ensureMinQuiz(quizUzRaw, 3, fallbackQuiz('UZ', keyPointsUz));
-
-            const conclusionRu = sanitizeSummary(parsed?.conclusion_ru, summaryRu, 2500);
-            const conclusionUz = sanitizeSummary(parsed?.conclusion_uz, summaryUz, 2500);
-
-            const additionalRu = sanitizeSummary(parsed?.additional_ru, '', 3000);
-            const additionalUz = sanitizeSummary(parsed?.additional_uz, '', 3000);
-
-            const rememberRu = [conclusionRu, additionalRu, keyPointsRu.slice(0, 2).join(' | ')].filter(Boolean).join(' ');
-            const rememberUz = [conclusionUz, additionalUz, keyPointsUz.slice(0, 2).join(' | ')].filter(Boolean).join(' ');
-
-            const lessonStepsRuRaw = normalizeLessonSteps(parsed?.lesson_steps_ru, 'RU', pageWindow.page_from, pageWindow.page_to);
-            const lessonStepsUzRaw = normalizeLessonSteps(parsed?.lesson_steps_uz, 'UZ', pageWindow.page_from, pageWindow.page_to);
-
-            const lessonStepsRuBase = hasStrongJourneyFlow(lessonStepsRuRaw)
-                ? lessonStepsRuRaw
-                : buildFallbackLessonSteps(
-                    'RU',
-                    lesson.title,
-                    summaryRu,
-                    contentRu,
-                    keyPointsRu,
-                    practiceRu,
-                    commonMistakesRu,
-                    rememberRu,
-                    quizRu,
-                    pageWindow,
-                    visualCandidates,
-                    hasVisualHints
+                const keyPointsRu = ensureMinItems(
+                    keyPointsRuRaw,
+                    4,
+                    fallbackKeyPoints('RU', lesson.title, summaryRu)
+                );
+                const keyPointsUz = ensureMinItems(
+                    keyPointsUzRaw,
+                    4,
+                    fallbackKeyPoints('UZ', lesson.title, summaryUz)
                 );
 
-            const lessonStepsUzBase = hasStrongJourneyFlow(lessonStepsUzRaw)
-                ? lessonStepsUzRaw
-                : buildFallbackLessonSteps(
-                    'UZ',
-                    lesson.title,
-                    summaryUz,
-                    contentUz,
-                    keyPointsUz,
-                    practiceUz,
-                    commonMistakesUz,
-                    rememberUz,
-                    quizUz,
-                    pageWindow,
-                    visualCandidates,
-                    hasVisualHints
-                );
+                const glossaryRuRaw = normalizeGlossary(parsed?.glossary_ru);
+                const glossaryUzRaw = normalizeGlossary(parsed?.glossary_uz);
 
-            const lessonStepsRu = enrichStepBlocksForStorage(lessonStepsRuBase, 'RU');
-            const lessonStepsUz = enrichStepBlocksForStorage(lessonStepsUzBase, 'UZ');
+                const glossaryRu = ensureMinGlossary(glossaryRuRaw, 3, fallbackGlossary('RU'));
+                const glossaryUz = ensureMinGlossary(glossaryUzRaw, 3, fallbackGlossary('UZ'));
 
-            const visualBlocks = buildVisualBlocks(lessonStepsRu, lessonStepsUz, visualCandidates);
+                const practiceRu = sanitizeSummary(parsed?.practice_ru, summaryRu, 3000);
+                const practiceUz = sanitizeSummary(parsed?.practice_uz, summaryUz, 3000);
 
-            return {
-                lesson_type,
-                difficulty_level,
-                source_section,
-                summary_ru: summaryRu,
-                summary_uz: summaryUz,
-                content_source: contentSource,
-                content_ru: contentRu,
-                content_uz: contentUz,
-                key_points_ru: keyPointsRu,
-                key_points_uz: keyPointsUz,
-                glossary_ru: glossaryRu,
-                glossary_uz: glossaryUz,
-                practice_ru: practiceRu,
-                practice_uz: practiceUz,
-                common_mistakes_ru: commonMistakesRu,
-                common_mistakes_uz: commonMistakesUz,
-                self_check_ru: selfCheckRu,
-                self_check_uz: selfCheckUz,
-                homework_ru: homeworkRu,
-                homework_uz: homeworkUz,
-                quiz_ru: quizRu,
-                quiz_uz: quizUz,
-                lesson_steps_ru: lessonStepsRu,
-                lesson_steps_uz: lessonStepsUz,
-                visual_blocks: visualBlocks,
-                conclusion_ru: conclusionRu,
-                conclusion_uz: conclusionUz,
-                additional_ru: additionalRu,
-                additional_uz: additionalUz,
-            };
-        } catch (e: any) {
-            lastError = e.message;
-            if (log) log.warn(`[Ingestion] Structured lesson generation failed for model ${model}: ${e.message}`);
+                const commonMistakesRuRaw = normalizeStringArray(parsed?.common_mistakes_ru, 12);
+                const commonMistakesUzRaw = normalizeStringArray(parsed?.common_mistakes_uz, 12);
+                const selfCheckRuRaw = normalizeStringArray(parsed?.self_check_ru, 10);
+                const selfCheckUzRaw = normalizeStringArray(parsed?.self_check_uz, 10);
+
+                const commonMistakesRu = ensureMinItems(commonMistakesRuRaw, 3, fallbackCommonMistakes('RU'));
+                const commonMistakesUz = ensureMinItems(commonMistakesUzRaw, 3, fallbackCommonMistakes('UZ'));
+                const selfCheckRu = ensureMinItems(selfCheckRuRaw, 3, fallbackSelfCheck('RU', lesson.title));
+                const selfCheckUz = ensureMinItems(selfCheckUzRaw, 3, fallbackSelfCheck('UZ', lesson.title));
+
+                const homeworkRuRaw = sanitizeSummary(parsed?.homework_ru, '', 3000);
+                const homeworkUzRaw = sanitizeSummary(parsed?.homework_uz, '', 3000);
+
+                const homeworkRu = homeworkRuRaw || fallbackHomework('RU', lesson.title, practiceRu);
+                const homeworkUz = homeworkUzRaw || fallbackHomework('UZ', lesson.title, practiceUz);
+
+                const quizRuRaw = normalizeQuiz(parsed?.quiz_ru);
+                const quizUzRaw = normalizeQuiz(parsed?.quiz_uz);
+
+                const quizRu = ensureMinQuiz(quizRuRaw, 3, fallbackQuiz('RU', keyPointsRu));
+                const quizUz = ensureMinQuiz(quizUzRaw, 3, fallbackQuiz('UZ', keyPointsUz));
+
+                const conclusionRu = sanitizeSummary(parsed?.conclusion_ru, summaryRu, 2500);
+                const conclusionUz = sanitizeSummary(parsed?.conclusion_uz, summaryUz, 2500);
+
+                const additionalRu = sanitizeSummary(parsed?.additional_ru, '', 3000);
+                const additionalUz = sanitizeSummary(parsed?.additional_uz, '', 3000);
+
+                const rememberRu = [conclusionRu, additionalRu, keyPointsRu.slice(0, 2).join(' | ')].filter(Boolean).join(' ');
+                const rememberUz = [conclusionUz, additionalUz, keyPointsUz.slice(0, 2).join(' | ')].filter(Boolean).join(' ');
+
+                const lessonStepsRuRaw = normalizeLessonSteps(parsed?.lesson_steps_ru, 'RU', pageWindow.page_from, pageWindow.page_to);
+                const lessonStepsUzRaw = normalizeLessonSteps(parsed?.lesson_steps_uz, 'UZ', pageWindow.page_from, pageWindow.page_to);
+
+                const lessonStepsRuBase = hasStrongJourneyFlow(lessonStepsRuRaw)
+                    ? lessonStepsRuRaw
+                    : buildFallbackLessonSteps(
+                        'RU',
+                        lesson.title,
+                        summaryRu,
+                        contentRu,
+                        keyPointsRu,
+                        practiceRu,
+                        commonMistakesRu,
+                        rememberRu,
+                        quizRu,
+                        pageWindow,
+                        visualCandidates,
+                        hasVisualHints
+                    );
+
+                const lessonStepsUzBase = hasStrongJourneyFlow(lessonStepsUzRaw)
+                    ? lessonStepsUzRaw
+                    : buildFallbackLessonSteps(
+                        'UZ',
+                        lesson.title,
+                        summaryUz,
+                        contentUz,
+                        keyPointsUz,
+                        practiceUz,
+                        commonMistakesUz,
+                        rememberUz,
+                        quizUz,
+                        pageWindow,
+                        visualCandidates,
+                        hasVisualHints
+                    );
+
+                const lessonStepsRu = enrichStepBlocksForStorage(lessonStepsRuBase, 'RU');
+                const lessonStepsUz = enrichStepBlocksForStorage(lessonStepsUzBase, 'UZ');
+
+                const shortRu = collectShortStepExplanations(lessonStepsRu, 'RU', minStepExplanationChars);
+                const shortUz = collectShortStepExplanations(lessonStepsUz, 'UZ', minStepExplanationChars);
+                if (shortRu.length > 0 || shortUz.length > 0) {
+                    const details = [...shortRu, ...shortUz]
+                        .slice(0, 12)
+                        .map((item) => `${item.language}#${item.step_index}:${item.step_id}:${item.length}`)
+                        .join(', ');
+                    throw new Error(`ai_explanation too short (<${minStepExplanationChars}) for steps: ${details}`);
+                }
+
+                const visualBlocks = buildVisualBlocks(lessonStepsRu, lessonStepsUz, visualCandidates);
+
+                return {
+                    lesson_type,
+                    difficulty_level,
+                    source_section,
+                    summary_ru: summaryRu,
+                    summary_uz: summaryUz,
+                    content_source: contentSource,
+                    content_ru: contentRu,
+                    content_uz: contentUz,
+                    key_points_ru: keyPointsRu,
+                    key_points_uz: keyPointsUz,
+                    glossary_ru: glossaryRu,
+                    glossary_uz: glossaryUz,
+                    practice_ru: practiceRu,
+                    practice_uz: practiceUz,
+                    common_mistakes_ru: commonMistakesRu,
+                    common_mistakes_uz: commonMistakesUz,
+                    self_check_ru: selfCheckRu,
+                    self_check_uz: selfCheckUz,
+                    homework_ru: homeworkRu,
+                    homework_uz: homeworkUz,
+                    quiz_ru: quizRu,
+                    quiz_uz: quizUz,
+                    lesson_steps_ru: lessonStepsRu,
+                    lesson_steps_uz: lessonStepsUz,
+                    visual_blocks: visualBlocks,
+                    conclusion_ru: conclusionRu,
+                    conclusion_uz: conclusionUz,
+                    additional_ru: additionalRu,
+                    additional_uz: additionalUz,
+                };
+            } catch (e: any) {
+                lastError = e.message;
+                if (log) {
+                    log.warn(
+                        `[Ingestion] Structured lesson generation failed for model ${model} attempt ${attempt}/${maxGenerationAttemptsPerModel}: ${e.message}`
+                    );
+                }
+            }
         }
     }
 

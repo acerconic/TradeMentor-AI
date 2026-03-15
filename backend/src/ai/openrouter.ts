@@ -1,5 +1,10 @@
 import { FastifyInstance } from 'fastify'
 
+interface ChatOptions {
+    temperature?: number;
+    max_tokens?: number;
+}
+
 export class OpenRouterService {
     private keys: string[] = [];
 
@@ -14,11 +19,20 @@ export class OpenRouterService {
         return possibleKeys.filter(k => k && k.trim() !== '') as string[];
     }
 
-    public async chat(model: string, messages: any[], server?: FastifyInstance) {
+    public async chat(model: string, messages: any[], server?: FastifyInstance, options?: ChatOptions) {
         const keys = this.getKeys();
         if (keys.length === 0) {
             throw new Error("No OpenRouter API keys configured. Please set OPENROUTER_KEY_1 in environment.");
         }
+
+        const temperatureRaw = Number(options?.temperature);
+        const temperature = Number.isFinite(temperatureRaw)
+            ? Math.max(0, Math.min(2, temperatureRaw))
+            : undefined;
+        const maxTokensRaw = Number(options?.max_tokens);
+        const max_tokens = Number.isFinite(maxTokensRaw)
+            ? Math.max(1, Math.min(16000, Math.floor(maxTokensRaw)))
+            : undefined;
 
         const errorsToRotate = [401, 403, 429, 500, 502, 503];
         let lastError = "";
@@ -33,6 +47,13 @@ export class OpenRouterService {
                     console.log(`Calling OpenRouter API... Model: ${model}, Key Index: ${i + 1}`);
                 }
 
+                const payload: Record<string, any> = {
+                    model,
+                    ...(typeof temperature === 'number' ? { temperature } : {}),
+                    ...(typeof max_tokens === 'number' ? { max_tokens } : {}),
+                    messages
+                };
+
                 const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
                     method: 'POST',
                     headers: {
@@ -41,10 +62,7 @@ export class OpenRouterService {
                         'HTTP-Referer': 'https://tradementor-ai.com',
                         'X-Title': 'TradeMentor AI',
                     },
-                    body: JSON.stringify({
-                        model,
-                        messages
-                    })
+                    body: JSON.stringify(payload)
                 });
 
                 if (response.ok) {
