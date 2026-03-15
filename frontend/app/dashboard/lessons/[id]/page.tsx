@@ -2,33 +2,37 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { IBM_Plex_Sans, PT_Serif } from 'next/font/google';
 import Cookies from 'js-cookie';
+import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   Bookmark,
-  BookOpen,
   Brain,
-  BrainCircuit,
-  Check,
   CheckCircle2,
-  ChevronDown,
+  ChevronLeft,
   ChevronRight,
-  Circle,
-  FileText,
+  ExternalLink,
   Languages,
   Loader2,
-  LogOut as LogOutIcon,
-  MessageCircle,
-  Settings,
+  MessageCircleQuestion,
   Sparkles,
-  Target,
-  User,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/context/LanguageContext';
+
+const displayFont = PT_Serif({
+  subsets: ['latin', 'cyrillic'],
+  weight: ['400', '700'],
+  variable: '--font-lesson-display',
+});
+
+const bodyFont = IBM_Plex_Sans({
+  subsets: ['latin', 'cyrillic'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-lesson-body',
+});
 
 type UiLanguage = 'RU' | 'UZ';
 
@@ -89,21 +93,21 @@ type LessonDetails = {
   content_ru?: string | null;
   content_uz?: string | null;
   source_language?: string | null;
-  key_points_json?: any;
-  glossary_json?: any;
-  practice_notes?: any;
-  common_mistakes_json?: any;
-  self_check_questions_json?: any;
-  homework_json?: any;
-  quiz_json?: any;
-  lesson_steps_json?: any;
-  visual_blocks_json?: any;
-  lesson_test_json?: any;
+  key_points_json?: unknown;
+  glossary_json?: unknown;
+  practice_notes?: unknown;
+  common_mistakes_json?: unknown;
+  self_check_questions_json?: unknown;
+  homework_json?: unknown;
+  quiz_json?: unknown;
+  lesson_steps_json?: unknown;
+  visual_blocks_json?: unknown;
+  lesson_test_json?: unknown;
   lesson_type?: string | null;
   source_section?: string | null;
   difficulty_level?: string | null;
-  conclusion_json?: any;
-  additional_notes_json?: any;
+  conclusion_json?: unknown;
+  additional_notes_json?: unknown;
   pdf_path?: string | null;
   course_id: string;
   course_title: string;
@@ -118,176 +122,278 @@ type LessonDetails = {
 const STEP_LABELS: Record<UiLanguage, Record<StepType, string>> = {
   RU: {
     intro: 'Введение',
-    visual: 'Визуальный блок',
-    concept: 'Ключевые идеи',
-    practice: 'Практика',
-    mistakes: 'Ошибки',
-    takeaway: 'Итог',
-    quiz: 'Мини-тест',
-    next: 'Следующий урок',
+    visual: 'Разбор фрагмента',
+    concept: 'Ключевая логика',
+    practice: 'Практическая интерпретация',
+    mistakes: 'Ловушки и ошибки',
+    takeaway: 'Итог и закрепление',
+    quiz: 'Проверка понимания',
+    next: 'Переход дальше',
   },
   UZ: {
     intro: 'Kirish',
-    visual: 'Vizual blok',
-    concept: 'Asosiy goya',
-    practice: 'Amaliyot',
-    mistakes: 'Xatolar',
-    takeaway: 'Yakun',
-    quiz: 'Mini-test',
-    next: 'Keyingi dars',
+    visual: 'Fragment tahlili',
+    concept: 'Asosiy mantiq',
+    practice: 'Amaliy talqin',
+    mistakes: 'Tuzoq va xatolar',
+    takeaway: 'Yakun va mustahkamlash',
+    quiz: 'Tekshiruv',
+    next: 'Keyingi bosqich',
   },
 };
 
 const COPY = {
   RU: {
-    loadingTitle: 'AI подготавливает lesson experience',
-    loadingStages: [
-      'AI анализирует структуру урока',
-      'Выбираем ключевые страницы и визуальные фрагменты',
-      'Формируем пошаговое объяснение как наставник',
-      'Готовим мини-тест именно по этому уроку',
-    ],
-    loadingTags: ['AI tutor flow', 'Book visual fragments', 'Step-by-step explanation', 'Mini test'],
-    back: 'Назад к курсу',
-    markComplete: 'Отметить завершенным',
+    loadingTitle: 'Готовим новый формат урока',
+    loadingHint: 'Собираем AI-навигацию, фрагменты книги и обучающий поток.',
+    notFound: 'Урок не найден',
+    notFoundHint: 'Вернитесь в курс и попробуйте открыть урок заново.',
+    backToCourse: 'К курсу',
+    progress: 'Прогресс',
+    language: 'Язык',
+    openOriginalPdf: 'Open original PDF',
+    openPdfUnavailable: 'Оригинальный PDF для этого урока недоступен',
+    openPdfError: 'Не удалось открыть оригинальный PDF',
+    type: 'Тип',
+    difficulty: 'Сложность',
+    source: 'Источник',
+    sourceSection: 'Раздел',
     completed: 'Урок завершен',
-    askAi: 'Спросить AI',
-    addFavorite: 'В избранное',
-    inFavorite: 'В избранном',
-    journey: 'Guided lesson journey',
-    journeyHint: 'Переходите по шагам как по mini-course, без длинной простыни текста.',
-    visualTitle: 'Фокус-фрагмент из книги',
-    visualEmpty: 'Для этого шага отдельный визуальный фрагмент не требуется.',
-    visualLoad: 'Загрузить фрагмент страницы',
-    visualLoading: 'Загружаем страницу из исходного PDF...',
-    sourceFragment: 'Фрагмент источника',
-    mentorView: 'Объяснение наставника',
-    whatToNotice: 'Что важно заметить',
-    altExplanation: 'AI объяснил иначе',
-    quickReplies: 'Быстрые действия',
+    inProgress: 'В процессе',
+    markComplete: 'Mark complete',
+    askAi: 'Ask AI',
+    addFavorite: 'Favorite',
+    inFavorite: 'In favorite',
+    lessonFlow: 'Навигация по шагам',
+    lessonFlowHint: 'Легкий chapter-flow: двигайтесь по смыслу, а не по карточкам.',
+    stepLabel: 'Шаг',
+    sceneTitle: 'Фрагмент книги и рыночная сцена',
+    sceneEmpty: 'Для этого шага визуальный фрагмент не обязателен.',
+    sceneLoad: 'Показать страницу',
+    sceneLoading: 'Рендерим страницу из источника…',
+    sourceFragment: 'Цитата из источника',
+    mentorExplanation: 'AI-наставник объясняет механику',
+    mentorAlternate: 'Альтернативное объяснение',
+    notes: 'Важно заметить',
+    practical: 'Практическая интерпретация',
+    glossary: 'Термины урока',
+    mistakes: 'Где чаще всего ошибаются',
+    summary: 'Что закрепить после шага',
+    selfCheck: 'Вопросы для самопроверки',
+    homework: 'Домашняя тренировка',
+    quickActions: 'Быстрые действия',
     understood: 'Всё понятно, идём дальше',
     explainAgain: 'Не понял, объясни иначе',
     askQuestion: 'У меня вопрос',
-    previousStep: 'Предыдущий шаг',
+    prevStep: 'Предыдущий шаг',
     nextStep: 'Следующий шаг',
-    keyComponents: 'Ключевые компоненты',
-    practicalUse: 'Как это работает на практике',
-    commonMistakes: 'Частые ошибки',
-    quickRules: 'Quick rules',
-    selfCheck: 'Вопросы для самопроверки',
-    summary: 'Что запомнить',
-    homework: 'Домашняя практика',
-    quizTitle: 'Мини-тест по текущему уроку',
-    quizHint: 'Ответы проверяются сразу с объяснениями.',
+    quizTitle: 'Мини-quiz по уроку',
+    quizHint: 'Проверка знаний в конце reading-потока.',
     checkResult: 'Проверить результат',
     resetQuiz: 'Сбросить',
-    score: 'Результат',
-    completeBeforeNext: 'Завершение и переход',
+    quizScore: 'Результат',
+    quizFillAll: 'Ответьте на все вопросы, чтобы проверить результат.',
+    nextBlockTitle: 'Следующий шаг в обучении',
     nextLesson: 'Перейти к следующему уроку',
-    noNextLesson: 'Это последний урок в текущей последовательности.',
-    lessonNotFound: 'Lesson not found',
-    lessonNotFoundHint: 'Вернитесь в Academy и выберите урок повторно.',
-    reframedToast: 'AI дал альтернативное объяснение текущего шага',
-    reframedError: 'Не удалось перегенерировать объяснение',
-    completionToast: 'Урок отмечен как завершенный',
+    noNextLesson: 'Это последний урок в текущей цепочке.',
+    completionToast: 'Урок отмечен завершенным',
     completionError: 'Не удалось отметить урок',
     favoriteAdded: 'Урок добавлен в избранное',
     favoriteRemoved: 'Урок удален из избранного',
-    questionPrefill: 'У меня вопрос по текущему шагу. Поясни детально и практично.',
+    reframedToast: 'AI дал альтернативное объяснение шага',
+    reframedError: 'Не удалось перегенерировать объяснение',
+    questionPrefill: 'У меня вопрос по текущему шагу. Объясни как наставник, глубоко и практично.',
+    askAiPrefill: 'Разбери этот урок как наставник и дай практический план применения на графике.',
   },
   UZ: {
-    loadingTitle: 'AI lesson experience tayyorlanmoqda',
-    loadingStages: [
-      'AI dars strukturasini tahlil qilmoqda',
-      "Asosiy sahifalar va vizual fragmentlar tanlanmoqda",
-      "Murabbiy uslubida bosqichma-bosqich tushuntirish yaratilmoqda",
-      "Aynan shu dars uchun mini-test tayyorlanmoqda",
-    ],
-    loadingTags: ['AI tutor flow', 'Book visual fragments', 'Step-by-step explanation', 'Mini test'],
-    back: 'Kursga qaytish',
-    markComplete: 'Darsni yakunlash',
-    completed: 'Dars yakunlandi',
-    askAi: "AI'dan so'rash",
-    addFavorite: "Sevimlilarga qo'shish",
-    inFavorite: 'Sevimlida',
-    journey: 'Guided lesson journey',
-    journeyHint: "Uzun matn o'rniga darsni mini-kurs kabi bosqichma-bosqich o'ting.",
-    visualTitle: 'Kitobdan vizual fokus-fragment',
-    visualEmpty: "Bu qadam uchun alohida vizual fragment talab qilinmaydi.",
-    visualLoad: 'Sahifa fragmentini yuklash',
-    visualLoading: 'Manba PDF sahifasi yuklanmoqda...',
-    sourceFragment: 'Manba fragmenti',
-    mentorView: 'Mentor izohi',
-    whatToNotice: "Nimaga e'tibor berish kerak",
-    altExplanation: 'AI boshqacha tushuntirdi',
-    quickReplies: 'Tezkor tugmalar',
-    understood: "Hammasi tushunarli, keyingisiga o'tamiz",
-    explainAgain: "Tushunmadim, boshqacha tushuntir",
+    loadingTitle: 'Yangi lesson format tayyorlanmoqda',
+    loadingHint: 'AI navigatsiya, kitob fragmentlari va o‘quv oqimi yig‘ilmoqda.',
+    notFound: 'Dars topilmadi',
+    notFoundHint: 'Kursga qayting va darsni qayta ochib ko‘ring.',
+    backToCourse: 'Kursga qaytish',
+    progress: 'Progress',
+    language: 'Til',
+    openOriginalPdf: 'Open original PDF',
+    openPdfUnavailable: 'Bu dars uchun original PDF mavjud emas',
+    openPdfError: 'Original PDFni ochib bo‘lmadi',
+    type: 'Tur',
+    difficulty: 'Daraja',
+    source: 'Manba',
+    sourceSection: 'Bo‘lim',
+    completed: 'Dars yakunlangan',
+    inProgress: 'Jarayonda',
+    markComplete: 'Mark complete',
+    askAi: 'Ask AI',
+    addFavorite: 'Favorite',
+    inFavorite: 'In favorite',
+    lessonFlow: 'Qadamlar bo‘yicha navigatsiya',
+    lessonFlowHint: 'Og‘ir bloklar emas, yengil chapter-flow orqali o‘qing.',
+    stepLabel: 'Qadam',
+    sceneTitle: 'Kitob fragmenti va bozor sahnasi',
+    sceneEmpty: 'Bu qadam uchun vizual fragment majburiy emas.',
+    sceneLoad: 'Sahifani ko‘rsatish',
+    sceneLoading: 'Sahifa manbadan render qilinmoqda…',
+    sourceFragment: 'Manbadan iqtibos',
+    mentorExplanation: 'AI-mentor bozor mexanikasini tushuntiradi',
+    mentorAlternate: 'Boshqacha tushuntirish',
+    notes: 'Muhim kuzatuvlar',
+    practical: 'Amaliy talqin',
+    glossary: 'Dars terminlari',
+    mistakes: 'Ko‘p xato qilinadigan joylar',
+    summary: 'Qadamdan keyin nimani mustahkamlash kerak',
+    selfCheck: 'O‘zini tekshirish savollari',
+    homework: 'Uyga mashq',
+    quickActions: 'Tezkor harakatlar',
+    understood: 'Hammasi tushunarli, keyingisiga o‘tamiz',
+    explainAgain: 'Tushunmadim, boshqacha tushuntir',
     askQuestion: 'Menda savol bor',
-    previousStep: 'Oldingi qadam',
+    prevStep: 'Oldingi qadam',
     nextStep: 'Keyingi qadam',
-    keyComponents: 'Asosiy komponentlar',
-    practicalUse: 'Amaliy qo`llash',
-    commonMistakes: "Ko'p uchraydigan xatolar",
-    quickRules: 'Quick rules',
-    selfCheck: "O'zini tekshirish savollari",
-    summary: 'Yodda qoladigan qism',
-    homework: 'Uyga vazifa',
-    quizTitle: 'Joriy dars bo`yicha mini-test',
-    quizHint: 'Har javob bo`yicha izoh darhol ko`rsatiladi.',
+    quizTitle: 'Dars bo‘yicha mini-quiz',
+    quizHint: 'Reading oqimi yakunida bilimni tekshirish.',
     checkResult: 'Natijani tekshirish',
     resetQuiz: 'Qayta boshlash',
-    score: 'Natija',
-    completeBeforeNext: 'Yakun va o`tish',
-    nextLesson: "Keyingi darsga o'tish",
-    noNextLesson: "Bu ketma-ketlikdagi oxirgi dars.",
-    lessonNotFound: 'Lesson topilmadi',
-    lessonNotFoundHint: 'Academyga qayting va darsni qayta tanlang.',
-    reframedToast: 'AI joriy qadamni boshqacha tushuntirdi',
-    reframedError: 'Izohni qayta yaratib bo`lmadi',
+    quizScore: 'Natija',
+    quizFillAll: 'Natijani tekshirish uchun barcha savollarga javob bering.',
+    nextBlockTitle: 'Ta’limning keyingi qadami',
+    nextLesson: 'Keyingi darsga o‘tish',
+    noNextLesson: 'Bu ketma-ketlikdagi oxirgi dars.',
     completionToast: 'Dars yakunlangan deb belgilandi',
-    completionError: 'Darsni yakunlashda xatolik',
-    favoriteAdded: "Dars sevimlilarga qo'shildi",
-    favoriteRemoved: "Dars sevimlilardan olib tashlandi",
-    questionPrefill: 'Joriy qadam bo`yicha savolim bor. Iltimos, batafsil va amaliy tushuntiring.',
+    completionError: 'Darsni yakunlashda xatolik yuz berdi',
+    favoriteAdded: 'Dars sevimlilarga qo‘shildi',
+    favoriteRemoved: 'Dars sevimlilardan olib tashlandi',
+    reframedToast: 'AI qadamni boshqacha tushuntirdi',
+    reframedError: 'Izohni qayta yaratib bo‘lmadi',
+    questionPrefill: 'Joriy qadam bo‘yicha savolim bor. Mentor uslubida chuqur va amaliy tushuntiring.',
+    askAiPrefill: 'Ushbu darsni mentor kabi tahlil qiling va chartda qo‘llash rejasini bering.',
   },
 } as const;
 
-function normalizeText(value: any): string {
+function normalizeInline(value: unknown): string {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+function pickLocalized(raw: unknown, language: UiLanguage): unknown {
+  if (raw === null || raw === undefined) return null;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw !== 'object') return raw;
+
+  const source = raw as Record<string, unknown>;
+  return source[language]
+    ?? source[language.toLowerCase()]
+    ?? source[language === 'RU' ? 'UZ' : 'RU']
+    ?? source[language === 'RU' ? 'uz' : 'ru']
+    ?? null;
+}
+
 function splitSentences(text: string): string[] {
-  return String(text || '')
+  return normalizeInline(text)
     .split(/(?<=[.!?])\s+/)
     .map((item) => item.trim())
     .filter(Boolean);
 }
 
-function pickLocalized(raw: any, language: UiLanguage): any {
-  if (!raw || typeof raw !== 'object') return null;
-  return raw[language] ?? raw[language.toLowerCase()] ?? raw[language === 'RU' ? 'UZ' : 'RU'] ?? raw[language === 'RU' ? 'uz' : 'ru'] ?? null;
+function toBulletPoints(text: string, max = 6): string[] {
+  const normalized = normalizeInline(text);
+  if (!normalized) return [];
+
+  const fromPipe = normalized
+    .split('|')
+    .map((item) => normalizeInline(item))
+    .filter(Boolean);
+
+  if (fromPipe.length > 1) return fromPipe.slice(0, max);
+
+  return splitSentences(normalized).slice(0, max);
 }
 
-function normalizeGlossary(raw: any): GlossaryItem[] {
+function parsePracticalSteps(text: string, max = 5): string[] {
+  const normalized = normalizeInline(text);
+  if (!normalized) return [];
+
+  const numbered = normalized.match(/\d+\.\s*[^\d]+?(?=(?:\s+\d+\.\s)|$)/g);
+  if (Array.isArray(numbered) && numbered.length > 0) {
+    return numbered
+      .map((item) => normalizeInline(item.replace(/^\d+\.\s*/, '')))
+      .filter(Boolean)
+      .slice(0, max);
+  }
+
+  const fromPipe = normalized
+    .split('|')
+    .map((item) => normalizeInline(item))
+    .filter(Boolean);
+  if (fromPipe.length > 1) return fromPipe.slice(0, max);
+
+  return splitSentences(normalized).slice(0, max);
+}
+
+function toMentorParagraphs(text: string): string[] {
+  const normalized = normalizeInline(text);
+  if (!normalized) return [];
+
+  const markerSplit = normalized
+    .split(/(?=(?:1️⃣|2️⃣|3️⃣|4️⃣|5️⃣))/g)
+    .map((part) => normalizeInline(part))
+    .filter(Boolean);
+
+  if (markerSplit.length >= 3) return markerSplit.slice(0, 8);
+
+  const sentences = splitSentences(normalized);
+  if (sentences.length <= 2) return [normalized];
+
+  const paragraphs: string[] = [];
+  let current = '';
+
+  for (const sentence of sentences) {
+    const candidate = current ? `${current} ${sentence}` : sentence;
+    if (candidate.length > 460 && current) {
+      paragraphs.push(current);
+      current = sentence;
+    } else {
+      current = candidate;
+    }
+  }
+
+  if (current) paragraphs.push(current);
+  if (paragraphs.length >= 3) return paragraphs.slice(0, 8);
+
+  const chunkSize = Math.max(280, Math.ceil(normalized.length / 3));
+  const chunks: string[] = [];
+  for (let i = 0; i < normalized.length; i += chunkSize) {
+    chunks.push(normalized.slice(i, i + chunkSize).trim());
+  }
+  return chunks.filter(Boolean).slice(0, 8);
+}
+
+function normalizeGlossary(raw: unknown): GlossaryItem[] {
   if (!Array.isArray(raw)) return [];
   return raw
-    .map((item: any) => ({ term: normalizeText(item?.term), definition: normalizeText(item?.definition) }))
-    .filter((item: GlossaryItem) => item.term && item.definition)
+    .map((item) => ({
+      term: normalizeInline((item as Record<string, unknown>)?.term),
+      definition: normalizeInline((item as Record<string, unknown>)?.definition),
+    }))
+    .filter((item) => item.term && item.definition)
     .slice(0, 12);
 }
 
-function normalizeQuiz(raw: any): QuizItem[] {
+function normalizeQuiz(raw: unknown): QuizItem[] {
   if (!Array.isArray(raw)) return [];
+
   return raw
-    .map((item: any) => {
-      const question = normalizeText(item?.question);
-      const options = Array.isArray(item?.options)
-        ? item.options.map((option: any) => normalizeText(option)).filter(Boolean).slice(0, 6)
-        : [];
+    .map((item) => {
+      const source = item as Record<string, unknown>;
+      const question = normalizeInline(source?.question);
+
+      const optionsRaw = Array.isArray(source?.options) ? source.options : [];
+      const options = optionsRaw
+        .map((option) => normalizeInline(option))
+        .filter(Boolean)
+        .slice(0, 6);
+
       if (!question || options.length < 2) return null;
 
-      const correctRaw = Number(item?.correct_index);
+      const correctRaw = Number(source?.correct_index);
       const correct_index = Number.isInteger(correctRaw)
         ? Math.max(0, Math.min(options.length - 1, correctRaw))
         : 0;
@@ -296,14 +402,14 @@ function normalizeQuiz(raw: any): QuizItem[] {
         question,
         options,
         correct_index,
-        explanation: normalizeText(item?.explanation),
+        explanation: normalizeInline(source?.explanation),
       } as QuizItem;
     })
     .filter(Boolean)
     .slice(0, 8) as QuizItem[];
 }
 
-function normalizeStepType(value: any): StepType {
+function normalizeStepType(value: unknown): StepType {
   const type = String(value || '').toLowerCase();
   if (type === 'visual') return 'visual';
   if (type === 'concept') return 'concept';
@@ -315,33 +421,38 @@ function normalizeStepType(value: any): StepType {
   return 'intro';
 }
 
-function normalizeSteps(raw: any): LessonStep[] {
+function normalizeSteps(raw: unknown): LessonStep[] {
   if (!Array.isArray(raw)) return [];
+
   return raw
-    .map((item: any, index: number) => {
-      const stepIndexRaw = Number(item?.step_index);
-      const pageFromRaw = Number(item?.page_from);
-      const pageToRaw = Number(item?.page_to);
+    .map((item, index) => {
+      const source = item as Record<string, unknown>;
+      const stepIndexRaw = Number(source?.step_index);
+      const pageFromRaw = Number(source?.page_from);
+      const pageToRaw = Number(source?.page_to);
+
       const page_from = Number.isInteger(pageFromRaw) ? Math.max(1, pageFromRaw) : 1;
       const page_to = Number.isInteger(pageToRaw) ? Math.max(page_from, pageToRaw) : page_from;
-      const page_text = normalizeText(item?.page_text || item?.source_excerpt);
-      const ai_explanation = normalizeText(item?.ai_explanation || item?.explanation);
-      const notes = normalizeText(item?.notes || item?.what_to_notice);
-      const practical_interpretation = normalizeText(item?.practical_interpretation);
+
+      const page_text = normalizeInline(source?.page_text || source?.source_excerpt);
+      const ai_explanation = normalizeInline(source?.ai_explanation || source?.explanation);
+      const notes = normalizeInline(source?.notes || source?.what_to_notice);
+      const practical_interpretation = normalizeInline(source?.practical_interpretation);
+
       return {
         step_index: Number.isInteger(stepIndexRaw) ? Math.max(1, stepIndexRaw) : index + 1,
-        step_id: normalizeText(item?.step_id || `step_${index + 1}`),
-        step_type: normalizeStepType(item?.step_type),
-        page_image: normalizeText(item?.page_image),
+        step_id: normalizeInline(source?.step_id || `step_${index + 1}`),
+        step_type: normalizeStepType(source?.step_type),
+        page_image: normalizeInline(source?.page_image),
         page_text,
         ai_explanation,
         notes,
         practical_interpretation,
-        title: normalizeText(item?.title),
-        source_excerpt: page_text || normalizeText(item?.source_excerpt),
-        explanation: ai_explanation || normalizeText(item?.explanation),
-        what_to_notice: notes || normalizeText(item?.what_to_notice),
-        visual_hint: normalizeText(item?.visual_hint),
+        title: normalizeInline(source?.title),
+        source_excerpt: page_text || normalizeInline(source?.source_excerpt),
+        explanation: ai_explanation || normalizeInline(source?.explanation),
+        what_to_notice: notes || normalizeInline(source?.what_to_notice),
+        visual_hint: normalizeInline(source?.visual_hint),
         page_from,
         page_to,
       } as LessonStep;
@@ -350,27 +461,31 @@ function normalizeSteps(raw: any): LessonStep[] {
     .slice(0, 12);
 }
 
-function normalizeVisualBlocks(raw: any): VisualBlock[] {
+function normalizeVisualBlocks(raw: unknown): VisualBlock[] {
   if (!Array.isArray(raw)) return [];
   return raw
-    .map((item: any) => ({
-      step_id: normalizeText(item?.step_id),
-      page_from: Math.max(1, Number(item?.page_from) || 1),
-      page_to: Math.max(Math.max(1, Number(item?.page_from) || 1), Number(item?.page_to) || Number(item?.page_from) || 1),
-      visual_kind: String(item?.visual_kind || 'page_fragment') as VisualBlock['visual_kind'],
-      caption_ru: normalizeText(item?.caption_ru),
-      caption_uz: normalizeText(item?.caption_uz),
-      importance_ru: normalizeText(item?.importance_ru),
-      importance_uz: normalizeText(item?.importance_uz),
-      page_excerpt: normalizeText(item?.page_excerpt),
-      focus_points_ru: Array.isArray(item?.focus_points_ru)
-        ? item.focus_points_ru.map((x: any) => normalizeText(x)).filter(Boolean).slice(0, 5)
-        : [],
-      focus_points_uz: Array.isArray(item?.focus_points_uz)
-        ? item.focus_points_uz.map((x: any) => normalizeText(x)).filter(Boolean).slice(0, 5)
-        : [],
-    }))
-    .filter((item: VisualBlock) => item.step_id)
+    .map((item) => {
+      const source = item as Record<string, unknown>;
+      const pageFrom = Math.max(1, Number(source?.page_from) || 1);
+      return {
+        step_id: normalizeInline(source?.step_id),
+        page_from: pageFrom,
+        page_to: Math.max(pageFrom, Number(source?.page_to) || pageFrom),
+        visual_kind: String(source?.visual_kind || 'page_fragment') as VisualBlock['visual_kind'],
+        caption_ru: normalizeInline(source?.caption_ru),
+        caption_uz: normalizeInline(source?.caption_uz),
+        importance_ru: normalizeInline(source?.importance_ru),
+        importance_uz: normalizeInline(source?.importance_uz),
+        page_excerpt: normalizeInline(source?.page_excerpt),
+        focus_points_ru: Array.isArray(source?.focus_points_ru)
+          ? source.focus_points_ru.map((point) => normalizeInline(point)).filter(Boolean).slice(0, 6)
+          : [],
+        focus_points_uz: Array.isArray(source?.focus_points_uz)
+          ? source.focus_points_uz.map((point) => normalizeInline(point)).filter(Boolean).slice(0, 6)
+          : [],
+      } as VisualBlock;
+    })
+    .filter((item) => item.step_id)
     .slice(0, 10);
 }
 
@@ -384,32 +499,33 @@ function hasJourneyShape(steps: LessonStep[]): boolean {
 function fallbackKeyPoints(language: UiLanguage): string[] {
   if (language === 'UZ') {
     return [
-      "Signalni har doim bozor konteksti bilan birga baholang.",
-      "Likvidlik va tasdiq triggeri birga ko'rilganda setup kuchliroq bo'ladi.",
-      "Kirishdan oldin risk, stop va targetni oldindan yozing.",
-      "Bir xil xatoni takrorlamaslik uchun checklist yuriting.",
+      'Signalni doim bozor konteksti bilan birga baholang.',
+      'Likvidlik va tasdiq triggeri birga bo‘lsa setup kuchliroq bo‘ladi.',
+      'Bitimdan oldin kirish, stop va target aniq bo‘lishi shart.',
+      'Bir xil xatoni takrorlamaslik uchun checklist yuriting.',
     ];
   }
+
   return [
-    'Сигнал оценивается только вместе с рыночным контекстом.',
-    'Связка ликвидности и подтверждающего триггера усиливает сетап.',
-    'До входа заранее фиксируйте риск, стоп и цель.',
-    'Используйте checklist, чтобы не повторять одни и те же ошибки.',
+    'Сигнал оценивается только в контексте рыночной структуры.',
+    'Связка ликвидности и подтверждения усиливает вероятность сценария.',
+    'До входа всегда фиксируйте вход, стоп и цель.',
+    'Checklist защищает от повторения одинаковых ошибок.',
   ];
 }
 
 function fallbackGlossary(language: UiLanguage): GlossaryItem[] {
   if (language === 'UZ') {
     return [
-      { term: 'Liquidity', definition: "Bozordagi buyurtmalar to'plangan zona." },
-      { term: 'Break of Structure', definition: "Muhim maksimum/minimum buzilishi orqali struktura o'zgarishi." },
-      { term: 'Order Block', definition: "Yirik ishtirokchilar izi ko'rinadigan potensial zona." },
+      { term: 'Liquidity', definition: 'Bozorda buyurtmalar zich to‘plangan zona.' },
+      { term: 'Break of Structure', definition: 'Muhim maksimum yoki minimum buzilishi.' },
+      { term: 'Order Block', definition: 'Yirik ishtirokchi izi ko‘rinadigan ehtimoliy zona.' },
     ];
   }
   return [
-    { term: 'Liquidity', definition: 'Зона концентрации ордеров, откуда часто начинается импульс.' },
-    { term: 'Break of Structure', definition: 'Пробой ключевого экстремума, подтверждающий смену структуры.' },
-    { term: 'Order Block', definition: 'Область активности крупных участников с потенциальной точкой входа.' },
+    { term: 'Liquidity', definition: 'Зона концентрации ордеров, где часто происходит резкий отклик цены.' },
+    { term: 'Break of Structure', definition: 'Пробой ключевого экстремума, подтверждающий изменение структуры.' },
+    { term: 'Order Block', definition: 'Область активности крупного капитала с потенциальной реакцией цены.' },
   ];
 }
 
@@ -417,44 +533,44 @@ function fallbackQuiz(language: UiLanguage): QuizItem[] {
   if (language === 'UZ') {
     return [
       {
-        question: "Setupdan oldin birinchi navbatda nimani tekshirish kerak?",
+        question: 'Setupdan oldin birinchi navbatda nimani tekshirish kerak?',
         options: ['Faqat indikator', 'Kontekst va struktura', 'Faqat bitta sham'],
         correct_index: 1,
-        explanation: "To'g'ri javob: kontekst va struktura. Signalni alohida ko'rish yetarli emas.",
+        explanation: 'To‘g‘ri javob: kontekst va struktura. Alohida signal yetarli emas.',
       },
       {
-        question: "Risk management bo'yicha to'g'ri yondashuv qaysi?",
-        options: ["Lotni his-tuyg'u bilan oshirish", 'Riskni oldindan belgilash', 'Stop-losssiz savdo'],
+        question: 'Likvidlik olinishidan keyin nima qilish to‘g‘ri?',
+        options: ['Darhol kirish', 'Tasdiq triggerini kutish', 'Rejasiz kirish'],
         correct_index: 1,
-        explanation: "Risk oldindan belgilansa, strategiya barqaror bo'ladi.",
+        explanation: 'Tasdiq triggeri false entry ehtimolini kamaytiradi.',
       },
       {
-        question: 'Likvidlikdan keyin qanday harakat to`g`ri?',
-        options: ['Darhol kirish', 'Tasdiq signalini kutish', 'Rejasiz kirish'],
+        question: 'Risk management bo‘yicha to‘g‘ri yondashuv qaysi?',
+        options: ['Lotni hissiyot bilan oshirish', 'Riskni oldindan belgilash', 'Stop-losssiz savdo'],
         correct_index: 1,
-        explanation: "Tasdiq signalini kutish false entry ehtimolini kamaytiradi.",
+        explanation: 'Risk oldindan belgilanmasa tizim barqaror ishlamaydi.',
       },
     ];
   }
 
   return [
     {
-      question: 'Что нужно проверить в первую очередь перед входом?',
-      options: ['Только индикатор', 'Контекст и структуру', 'Только одну свечу'],
+      question: 'Что проверяется первым перед входом?',
+      options: ['Только индикатор', 'Контекст и структура', 'Одна свеча'],
       correct_index: 1,
-      explanation: 'Верно: контекст и структура. Сигнал сам по себе недостаточен.',
-    },
-    {
-      question: 'Какой подход к risk management корректный?',
-      options: ['Повышать объем по эмоциям', 'Фиксировать риск заранее', 'Торговать без стопа'],
-      correct_index: 1,
-      explanation: 'Риск должен быть определен до открытия позиции.',
+      explanation: 'Верно: сначала контекст и структура, потом триггер входа.',
     },
     {
       question: 'Как действовать после снятия ликвидности?',
-      options: ['Входить сразу', 'Ждать подтверждение', 'Открывать сделку без плана'],
+      options: ['Входить сразу', 'Ждать подтверждение', 'Открывать позицию без плана'],
       correct_index: 1,
       explanation: 'Подтверждение снижает вероятность ложного входа.',
+    },
+    {
+      question: 'Какой подход к риск-менеджменту корректный?',
+      options: ['Увеличивать объем по эмоциям', 'Фиксировать риск заранее', 'Торговать без стопа'],
+      correct_index: 1,
+      explanation: 'Риск должен быть определен до открытия позиции.',
     },
   ];
 }
@@ -473,10 +589,10 @@ function buildFallbackJourneySteps(
       {
         step_id: 'step_1_intro',
         step_type: 'intro',
-        title: 'Step 1: Kirish va dars maqsadi',
+        title: 'Step 1: Dars yo‘nalishi',
         source_excerpt: summary,
-        explanation: "Bu dars sizga asosiy bozor mantiqini ketma-ket tushuntiradi. Dars yakunida signalni qanday talqin qilish va uni amalda qanday qo'llashni aniq bilasiz.",
-        what_to_notice: "Signalni har doim kontekst bilan birga baholang.",
+        explanation: 'Bu bosqich darsning asosiy maqsadini beradi: signalni bozor konteksti bilan o‘qish va amaliy qarorga aylantirish.',
+        what_to_notice: 'Alohida signalga emas, umumiy strukturaga qarang.',
         visual_hint: '',
         page_from: 1,
         page_to: 1,
@@ -484,32 +600,32 @@ function buildFallbackJourneySteps(
       {
         step_id: 'step_2_visual_a',
         step_type: 'visual',
-        title: 'Step 2: Kitob fragmenti A + AI tahlil',
+        title: 'Step 2: Fragment A',
         source_excerpt: summary,
-        explanation: "Bu fragmentda setupning boshlanish nuqtasi ko'rsatiladi. AI aynan shu joyda signal qanday paydo bo'lishini izohlaydi.",
-        what_to_notice: "Likvidlik va tasdiq triggerini belgilang.",
-        visual_hint: 'Sahifadagi asosiy signalni toping.',
+        explanation: 'Birinchi fragmentda setupning boshlanish sharti ko‘rinadi: qayerda likvidlik to‘planadi va trigger qayerda paydo bo‘ladi.',
+        what_to_notice: 'Likvidlik zonasi va tasdiq triggerini belgilang.',
+        visual_hint: 'Asosiy signal markazini toping.',
         page_from: 1,
         page_to: 1,
       },
       {
         step_id: 'step_3_visual_b',
         step_type: 'visual',
-        title: 'Step 3: Keyingi fragment B + AI tahlil',
-        source_excerpt: content.slice(0, 320),
-        explanation: "Ikkinchi fragment birinchi qadamni to'ldiradi va scenariy davomiyligini ko'rsatadi. AI qaysi nuqtada xato qilish mumkinligini ham ochib beradi.",
-        what_to_notice: "A va B fragmentlaridagi mantiqiy o'tishni solishtiring.",
-        visual_hint: "Narx reaksiyasi qayerda o'zgarganini tekshiring.",
+        title: 'Step 3: Fragment B',
+        source_excerpt: content.slice(0, 360),
+        explanation: 'Ikkinchi fragment setupning davomiyligini ko‘rsatadi: qayerda davom etadi, qayerda invalid bo‘ladi.',
+        what_to_notice: 'A va B fragmentlari o‘rtasidagi mantiqiy bog‘lanishni solishtiring.',
+        visual_hint: 'Narx reaksiyasi o‘zgargan nuqtani ajrating.',
         page_from: 1,
         page_to: 1,
       },
       {
         step_id: 'step_4_concept',
         step_type: 'concept',
-        title: 'Step 4: Asosiy tushunchalar',
-        source_excerpt: content.slice(0, 420),
-        explanation: 'Ushbu bosqichda terminlar va asosiy qoidalar tizimga keltiriladi. Har tushuncha bozor strukturasi bilan bog`lanadi.',
-        what_to_notice: "Terminlarni alohida emas, umumiy setup ichida o'rganing.",
+        title: 'Step 4: Konsept mantiqi',
+        source_excerpt: content.slice(0, 520),
+        explanation: 'Terminlar alohida emas, bitta execution zanjiri ichida talqin qilinadi: kontekst -> trigger -> tasdiq -> risk.',
+        what_to_notice: 'Har tushunchani real chartdagi roli bilan bog‘lang.',
         visual_hint: '',
         page_from: 1,
         page_to: 1,
@@ -517,10 +633,10 @@ function buildFallbackJourneySteps(
       {
         step_id: 'step_5_practice',
         step_type: 'practice',
-        title: "Step 5: Tradingda amaliy qo'llash",
+        title: 'Step 5: Amaliy qo‘llash',
         source_excerpt: practical,
-        explanation: "Nazariyani chart executionga o'tkazish uchun aniq ketma-ketlik beriladi: kirish, invalidation, stop va target.",
-        what_to_notice: "Bitimdan oldin kirish-stop-target rejasi tayyor bo'lishi kerak.",
+        explanation: 'Bu bosqich nazariyani konkret algoritmga aylantiradi: signalni topish, tasdiqni kutish, entry-stop-targetni belgilash.',
+        what_to_notice: 'Bitimdan oldin to‘liq plan yozib qo‘ying.',
         visual_hint: '',
         page_from: 1,
         page_to: 1,
@@ -528,10 +644,10 @@ function buildFallbackJourneySteps(
       {
         step_id: 'step_6_mistakes',
         step_type: 'mistakes',
-        title: "Step 6: Ko'p uchraydigan xatolar",
-        source_excerpt: commonMistakes.join(' '),
-        explanation: "Yangi boshlovchilar ko'p takrorlaydigan xatolar shu yerda tahlil qilinadi. Har xatoga qarshi amaliy oldini olish qoidasi beriladi.",
-        what_to_notice: commonMistakes[0] || "Tasdiqsiz kirishdan saqlaning.",
+        title: 'Step 6: Tuzoqlar',
+        source_excerpt: commonMistakes.join(' | '),
+        explanation: 'Ko‘p yo‘qotishlar aynan shu yerda bo‘ladi: kontekstsiz kirish, erta kirish va risk intizomini buzish.',
+        what_to_notice: commonMistakes[0] || 'Tasdiqsiz kirishdan saqlaning.',
         visual_hint: '',
         page_from: 1,
         page_to: 1,
@@ -539,10 +655,10 @@ function buildFallbackJourneySteps(
       {
         step_id: 'step_7_takeaway',
         step_type: 'takeaway',
-        title: 'Step 7: Nimani eslab qolish kerak',
+        title: 'Step 7: Mustahkamlash',
         source_excerpt: remember,
-        explanation: "Bu qadam darsni qisqa checklistga aylantiradi. Keyingi chart tahlilida aynan shu qoidalarga tayaning.",
-        what_to_notice: "Asosiy qoidalarni jurnalga yozib qo'ying.",
+        explanation: 'Qisqa checklist bu darsdagi qaror mantiqini keyingi chartlarda barqaror takrorlashga yordam beradi.',
+        what_to_notice: 'Asosiy qoidalarni jurnalingizga yozing.',
         visual_hint: '',
         page_from: 1,
         page_to: 1,
@@ -550,10 +666,10 @@ function buildFallbackJourneySteps(
       {
         step_id: 'step_8_quiz',
         step_type: 'quiz',
-        title: 'Step 8: Mini-test',
+        title: 'Step 8: Mini-quiz',
         source_excerpt: summary,
-        explanation: `${quizCount} ta savol darsni qanchalik tushunganingizni tekshiradi.`,
-        what_to_notice: "Javoblarda aynan joriy dars mantiqiga tayaning.",
+        explanation: `${quizCount} ta savol darsning amaliy tushunchasini tekshiradi.`,
+        what_to_notice: 'Javob berishda joriy setup logikasiga tayaning.',
         visual_hint: '',
         page_from: 1,
         page_to: 1,
@@ -561,10 +677,10 @@ function buildFallbackJourneySteps(
       {
         step_id: 'step_9_next',
         step_type: 'next',
-        title: "Step 9: Keyingi darsga o'tish",
+        title: 'Step 9: Keyingi darsga o‘tish',
         source_excerpt: summary,
-        explanation: "Current lessonni yakunlang, natijani saqlang va keyingi darsga o'ting. Ketma-ketlik bo'yicha harakat qilish bilimni mustahkamlaydi.",
-        what_to_notice: "Avval mark complete, keyin next lesson.",
+        explanation: 'Joriy darsni yakunlang, keyin navbatdagi darsga ketma-ket o‘ting.',
+        what_to_notice: 'Avval mark complete, keyin next.',
         visual_hint: '',
         page_from: 1,
         page_to: 1,
@@ -576,10 +692,10 @@ function buildFallbackJourneySteps(
     {
       step_id: 'step_1_intro',
       step_type: 'intro',
-      title: 'Step 1: Введение и цель урока',
+      title: 'Step 1: Вектор урока',
       source_excerpt: summary,
-      explanation: 'Этот урок раскрывает логику темы в формате AI-наставника. К концу прохождения вы понимаете, где искать сигнал и как применять его в реальной торговле.',
-      what_to_notice: 'Оценивайте сигнал только в связке с контекстом рынка.',
+      explanation: 'Этот шаг задает главную логику: как читать сигнал в контексте структуры и переводить идею в решение.',
+      what_to_notice: 'Смотрите не на отдельный сигнал, а на весь контекст.',
       visual_hint: '',
       page_from: 1,
       page_to: 1,
@@ -587,32 +703,32 @@ function buildFallbackJourneySteps(
     {
       step_id: 'step_2_visual_a',
       step_type: 'visual',
-      title: 'Step 2: Фрагмент книги A + AI разбор',
+      title: 'Step 2: Фрагмент A',
       source_excerpt: summary,
-      explanation: 'На этом фрагменте AI объясняет, как формируется рабочий сигнал и где находится его подтверждение. Здесь важно увидеть не картинку, а торговую логику.',
-      what_to_notice: 'Отметьте зону ликвидности и точку подтверждения.',
-      visual_hint: 'Найдите ключевой визуальный сигнал на странице.',
+      explanation: 'На первом фрагменте видно формирование предпосылки: где скапливается ликвидность и где появляется триггер.',
+      what_to_notice: 'Отметьте ликвидность и точку подтверждения.',
+      visual_hint: 'Найдите главный визуальный сигнал.',
       page_from: 1,
       page_to: 1,
     },
     {
       step_id: 'step_3_visual_b',
       step_type: 'visual',
-      title: 'Step 3: Следующий фрагмент B + AI разбор',
-      source_excerpt: content.slice(0, 320),
-      explanation: 'Второй фрагмент показывает развитие сценария и потенциальные точки ошибки. AI связывает оба фрагмента в единую последовательность принятия решения.',
-      what_to_notice: 'Сравните логику между фрагментом A и B.',
-      visual_hint: 'Проверьте, где изменилась реакция цены.',
+      title: 'Step 3: Фрагмент B',
+      source_excerpt: content.slice(0, 360),
+      explanation: 'Второй фрагмент показывает, как сценарий либо продолжается, либо ломается.',
+      what_to_notice: 'Сопоставьте логику между фрагментом A и B.',
+      visual_hint: 'Выделите точку изменения реакции цены.',
       page_from: 1,
       page_to: 1,
     },
     {
       step_id: 'step_4_concept',
       step_type: 'concept',
-      title: 'Step 4: Ключевые концепции',
-      source_excerpt: content.slice(0, 420),
-      explanation: 'На этом шаге термины и правила складываются в понятную систему. Каждый концепт объясняется через его практическую роль в сетапе.',
-      what_to_notice: 'Изучайте понятия через рыночную структуру, а не изолированно.',
+      title: 'Step 4: Концепт-механика',
+      source_excerpt: content.slice(0, 520),
+      explanation: 'Термины собираются в единую рабочую цепочку: контекст -> триггер -> подтверждение -> риск.',
+      what_to_notice: 'Каждый термин должен иметь практическую роль на графике.',
       visual_hint: '',
       page_from: 1,
       page_to: 1,
@@ -620,10 +736,10 @@ function buildFallbackJourneySteps(
     {
       step_id: 'step_5_practice',
       step_type: 'practice',
-      title: 'Step 5: Практическая интерпретация',
+      title: 'Step 5: Практика',
       source_excerpt: practical,
-      explanation: 'Теория переводится в конкретный execution-план: вход, invalidation, стоп и цель. Этот шаг делает материал прикладным.',
-      what_to_notice: 'План входа-стопа-цели должен быть готов до сделки.',
+      explanation: 'Здесь теория становится алгоритмом сделки: что искать, чем подтвердить, где входить, где отменять сценарий.',
+      what_to_notice: 'План сделки должен быть готов до клика по кнопке Buy/Sell.',
       visual_hint: '',
       page_from: 1,
       page_to: 1,
@@ -631,10 +747,10 @@ function buildFallbackJourneySteps(
     {
       step_id: 'step_6_mistakes',
       step_type: 'mistakes',
-      title: 'Step 6: Частые ошибки новичка',
-      source_excerpt: commonMistakes.join(' '),
-      explanation: 'Здесь разобраны ошибки, которые чаще всего приводят к убыточным входам. Для каждой ошибки есть короткое правило профилактики.',
-      what_to_notice: commonMistakes[0] || 'Не входите в позицию без подтверждения.',
+      title: 'Step 6: Ошибки и ловушки',
+      source_excerpt: commonMistakes.join(' | '),
+      explanation: 'Самые дорогие ошибки: вход без контекста, поспешный вход и нарушение риск-дисциплины.',
+      what_to_notice: commonMistakes[0] || 'Не входите без подтверждения.',
       visual_hint: '',
       page_from: 1,
       page_to: 1,
@@ -642,10 +758,10 @@ function buildFallbackJourneySteps(
     {
       step_id: 'step_7_takeaway',
       step_type: 'takeaway',
-      title: 'Step 7: Итог — что запомнить',
+      title: 'Step 7: Закрепление',
       source_excerpt: remember,
-      explanation: 'Этот шаг фиксирует главные выводы урока в формате быстрого checklist. Используйте его как опору при следующем анализе графика.',
-      what_to_notice: 'Сохраните ключевые правила в торговом журнале.',
+      explanation: 'Короткий checklist фиксирует логику урока для следующего анализа графика.',
+      what_to_notice: 'Сохраните правила в торговый журнал.',
       visual_hint: '',
       page_from: 1,
       page_to: 1,
@@ -653,10 +769,10 @@ function buildFallbackJourneySteps(
     {
       step_id: 'step_8_quiz',
       step_type: 'quiz',
-      title: 'Step 8: Мини-тест',
+      title: 'Step 8: Мини-quiz',
       source_excerpt: summary,
-      explanation: `${quizCount} вопросов проверяют понимание именно этого урока.`,
-      what_to_notice: 'Отвечайте, опираясь на логику текущего материала.',
+      explanation: `${quizCount} вопросов проверяют, насколько вы поняли механику урока.`,
+      what_to_notice: 'Отвечайте, опираясь на текущий материал, а не на общую теорию.',
       visual_hint: '',
       page_from: 1,
       page_to: 1,
@@ -666,8 +782,8 @@ function buildFallbackJourneySteps(
       step_type: 'next',
       title: 'Step 9: Переход к следующему уроку',
       source_excerpt: summary,
-      explanation: 'Завершите текущий урок, сохраните прогресс и переходите к следующему lesson. Последовательность помогает закрепить материал глубже.',
-      what_to_notice: 'Сначала отметьте урок завершенным.',
+      explanation: 'Завершите текущий урок и переходите дальше по последовательности.',
+      what_to_notice: 'Сначала mark complete, затем next lesson.',
       visual_hint: '',
       page_from: 1,
       page_to: 1,
@@ -680,24 +796,24 @@ function enrichStepsForUi(steps: LessonStep[]): LessonStep[] {
     .map((step, index) => {
       const pageFrom = Math.max(1, Number(step.page_from) || 1);
       const pageTo = Math.max(pageFrom, Number(step.page_to) || pageFrom);
-      const page_text = normalizeText(step.page_text || step.source_excerpt);
-      const ai_explanation = normalizeText(step.ai_explanation || step.explanation);
-      const notes = normalizeText(step.notes || step.what_to_notice);
-      const practical_interpretation = normalizeText(
+      const page_text = normalizeInline(step.page_text || step.source_excerpt);
+      const ai_explanation = normalizeInline(step.ai_explanation || step.explanation);
+      const notes = normalizeInline(step.notes || step.what_to_notice);
+      const practical_interpretation = normalizeInline(
         step.practical_interpretation || (step.step_type === 'practice' ? (step.source_excerpt || step.explanation) : ''),
       );
 
       return {
         ...step,
         step_index: Number.isInteger(Number(step.step_index)) ? Math.max(1, Number(step.step_index)) : index + 1,
-        page_image: normalizeText(step.page_image || `page:${pageFrom}`),
+        page_image: normalizeInline(step.page_image || `page:${pageFrom}`),
         page_text,
         ai_explanation,
         notes,
         practical_interpretation,
-        source_excerpt: page_text || normalizeText(step.source_excerpt),
-        explanation: ai_explanation || normalizeText(step.explanation),
-        what_to_notice: notes || normalizeText(step.what_to_notice),
+        source_excerpt: page_text || normalizeInline(step.source_excerpt),
+        explanation: ai_explanation || normalizeInline(step.explanation),
+        what_to_notice: notes || normalizeInline(step.what_to_notice),
         page_from: pageFrom,
         page_to: pageTo,
       } as LessonStep;
@@ -707,24 +823,18 @@ function enrichStepsForUi(steps: LessonStep[]): LessonStep[] {
 }
 
 export default function LessonPage({ params }: { params: { id: string } }) {
-  const { t, language, setLanguage } = useLanguage();
   const router = useRouter();
+  const { language, setLanguage } = useLanguage();
 
   const [user, setUser] = useState<any>(null);
   const [lesson, setLesson] = useState<LessonDetails | null>(null);
 
-  const [isPreparing, setIsPreparing] = useState(true);
-  const [prepareProgress, setPrepareProgress] = useState(0);
-  const [prepareMessage, setPrepareMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [isLoadingPdf, setIsLoadingPdf] = useState(false);
-  const [isRenderingPageImage, setIsRenderingPageImage] = useState(false);
-  const [pageImageByPage, setPageImageByPage] = useState<Record<number, string>>({});
-  const [pageRenderError, setPageRenderError] = useState<string | null>(null);
-
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isFavorite, setIsFavorite] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
+  const [isOpeningPdf, setIsOpeningPdf] = useState(false);
 
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [visitedSteps, setVisitedSteps] = useState<Set<number>>(new Set([0]));
@@ -735,6 +845,15 @@ export default function LessonPage({ params }: { params: { id: string } }) {
   const [quizAnswers, setQuizAnswers] = useState<Record<number, number>>({});
   const [quizSubmitted, setQuizSubmitted] = useState(false);
 
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+
+  const [isLoadingPdf, setIsLoadingPdf] = useState(false);
+  const [isRenderingPageImage, setIsRenderingPageImage] = useState(false);
+  const [pageImageByPage, setPageImageByPage] = useState<Record<number, string>>({});
+  const pageImageByPageRef = useRef<Record<number, string>>({});
+  const [pageRenderError, setPageRenderError] = useState<string | null>(null);
+
   const pdfBinaryRef = useRef<ArrayBuffer | null>(null);
   const pdfDocumentRef = useRef<any>(null);
   const renderingPagesRef = useRef<Set<number>>(new Set());
@@ -744,72 +863,69 @@ export default function LessonPage({ params }: { params: { id: string } }) {
 
   const showToast = (message: string) => {
     setToastMessage(message);
-    setTimeout(() => setToastMessage(null), 3200);
-  };
-
-  const handleLogout = () => {
-    Cookies.remove('token');
-    Cookies.remove('user');
-    router.push('/login');
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToastMessage(null), 3200);
   };
 
   useEffect(() => {
-    const userStr = Cookies.get('user');
-    if (userStr) setUser(JSON.parse(userStr));
+    return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const userCookie = Cookies.get('user');
+    if (!userCookie) return;
+    try {
+      setUser(JSON.parse(userCookie));
+    } catch {
+      setUser(null);
+    }
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    const minDuration = 5000 + Math.floor(Math.random() * 5000);
-    const start = Date.now();
 
-    const stages = COPY[uiLanguage].loadingStages;
-    setPrepareMessage(stages[0]);
-
-    let stageIndex = 0;
-    const messageTimer = setInterval(() => {
-      if (cancelled) return;
-      stageIndex = (stageIndex + 1) % stages.length;
-      setPrepareMessage(stages[stageIndex]);
-    }, 1350);
-
-    const progressTimer = setInterval(() => {
-      if (cancelled) return;
-      const elapsed = Date.now() - start;
-      const progress = Math.min(95, Math.round((elapsed / minDuration) * 100));
-      setPrepareProgress(progress);
-    }, 160);
-
-    const run = async () => {
+    const loadLesson = async () => {
+      setIsLoading(true);
+      setLoadError(null);
       try {
         const response = await api.get(`/courses/lessons/${params.id}`);
-        if (!cancelled) setLesson(response.data);
+        if (cancelled) return;
+        setLesson(response.data as LessonDetails);
       } catch (error: any) {
-        if (!cancelled) {
-          setLesson(null);
-          showToast(error.response?.data?.error || 'Failed to load lesson');
-        }
+        if (cancelled) return;
+        setLesson(null);
+        setLoadError(error.response?.data?.error || 'Failed to load lesson');
       } finally {
-        const elapsed = Date.now() - start;
-        const remain = Math.max(0, minDuration - elapsed);
-        setTimeout(() => {
-          if (cancelled) return;
-          setPrepareProgress(100);
-          setIsPreparing(false);
-          clearInterval(messageTimer);
-          clearInterval(progressTimer);
-        }, remain);
+        if (!cancelled) setIsLoading(false);
       }
     };
 
-    run();
-
+    void loadLesson();
     return () => {
       cancelled = true;
-      clearInterval(messageTimer);
-      clearInterval(progressTimer);
     };
-  }, [params.id, uiLanguage]);
+  }, [params.id]);
+
+  useEffect(() => {
+    if (!lesson?.id) return;
+    const key = `lesson_favorite_${lesson.id}`;
+    setIsFavorite(localStorage.getItem(key) === '1');
+
+    setActiveStepIndex(0);
+    setVisitedSteps(new Set([0]));
+    setAlternateExplanation('');
+    setQuizAnswers({});
+    setQuizSubmitted(false);
+
+    setPageImageByPage({});
+    pageImageByPageRef.current = {};
+    setPageRenderError(null);
+    pdfBinaryRef.current = null;
+    pdfDocumentRef.current = null;
+    renderingPagesRef.current.clear();
+  }, [lesson?.id]);
 
   useEffect(() => {
     return () => {
@@ -820,21 +936,193 @@ export default function LessonPage({ params }: { params: { id: string } }) {
   }, []);
 
   useEffect(() => {
-    if (!lesson?.id) return;
-    const key = `lesson_favorite_${lesson.id}`;
-    const saved = localStorage.getItem(key);
-    setIsFavorite(saved === '1');
-    setQuizAnswers({});
-    setQuizSubmitted(false);
-    setActiveStepIndex(0);
-    setVisitedSteps(new Set([0]));
-    setAlternateExplanation('');
-    setPageImageByPage({});
-    setPageRenderError(null);
-    pdfBinaryRef.current = null;
-    pdfDocumentRef.current = null;
-    renderingPagesRef.current.clear();
-  }, [lesson?.id]);
+    pageImageByPageRef.current = pageImageByPage;
+  }, [pageImageByPage]);
+
+  const firstName = useMemo(() => {
+    const normalized = normalizeInline(user?.name);
+    if (!normalized) return 'Trader';
+    return normalized.split(' ')[0] || 'Trader';
+  }, [user]);
+
+  const localizedSummary = useMemo(() => {
+    if (!lesson) return '';
+    if (uiLanguage === 'UZ') return normalizeInline(lesson.summary_uz || lesson.summary_ru || lesson.summary);
+    return normalizeInline(lesson.summary_ru || lesson.summary_uz || lesson.summary);
+  }, [lesson, uiLanguage]);
+
+  const localizedContent = useMemo(() => {
+    if (!lesson) return '';
+    if (uiLanguage === 'UZ') return normalizeInline(lesson.content_uz || lesson.content_source || lesson.content_ru || lesson.content);
+    return normalizeInline(lesson.content_ru || lesson.content_source || lesson.content_uz || lesson.content);
+  }, [lesson, uiLanguage]);
+
+  const keyPoints = useMemo(() => {
+    const raw = pickLocalized(lesson?.key_points_json, uiLanguage);
+    const normalized = Array.isArray(raw)
+      ? raw.map((item) => normalizeInline(item)).filter(Boolean).slice(0, 10)
+      : [];
+    return normalized.length > 0 ? normalized : fallbackKeyPoints(uiLanguage);
+  }, [lesson?.key_points_json, uiLanguage]);
+
+  const glossary = useMemo(() => {
+    const raw = pickLocalized(lesson?.glossary_json, uiLanguage);
+    const normalized = normalizeGlossary(raw);
+    return normalized.length > 0 ? normalized : fallbackGlossary(uiLanguage);
+  }, [lesson?.glossary_json, uiLanguage]);
+
+  const practical = useMemo(() => {
+    const raw = normalizeInline(pickLocalized(lesson?.practice_notes, uiLanguage));
+    if (raw) return raw;
+    if (uiLanguage === 'UZ') {
+      return '3 ta chartda setupni tekshiring: kirish, stop va targetni oldindan belgilang.';
+    }
+    return 'Проверьте сетап на 3 графиках: заранее определите вход, стоп и цель.';
+  }, [lesson?.practice_notes, uiLanguage]);
+
+  const commonMistakes = useMemo(() => {
+    const raw = pickLocalized(lesson?.common_mistakes_json, uiLanguage);
+    const normalized = Array.isArray(raw)
+      ? raw.map((item) => normalizeInline(item)).filter(Boolean).slice(0, 8)
+      : [];
+
+    if (normalized.length > 0) return normalized;
+    return uiLanguage === 'UZ'
+      ? [
+          'Signalni kontekstsiz talqin qilish.',
+          'Tasdiqsiz kirish.',
+          'Risk qoidalarini buzib lotni oshirish.',
+        ]
+      : [
+          'Интерпретация сигнала без контекста.',
+          'Вход без подтверждения.',
+          'Нарушение риск-дисциплины через увеличение объема.',
+        ];
+  }, [lesson?.common_mistakes_json, uiLanguage]);
+
+  const selfCheck = useMemo(() => {
+    const raw = pickLocalized(lesson?.self_check_questions_json, uiLanguage);
+    const normalized = Array.isArray(raw)
+      ? raw.map((item) => normalizeInline(item)).filter(Boolean).slice(0, 6)
+      : [];
+
+    if (normalized.length > 0) return normalized;
+    return uiLanguage === 'UZ'
+      ? [
+          'Bu setupda kontekstni qayerdan baholaysiz?',
+          'Tasdiq triggeri qayerda paydo bo‘ladi?',
+          'Invalid bo‘lsa qayerda chiqasiz?',
+        ]
+      : [
+          'Где в этом сетапе оценивается контекст?',
+          'Каким триггером подтверждается вход?',
+          'Где будет invalidation и выход?',
+        ];
+  }, [lesson?.self_check_questions_json, uiLanguage]);
+
+  const homework = useMemo(() => {
+    const raw = normalizeInline(pickLocalized(lesson?.homework_json, uiLanguage));
+    if (raw) return raw;
+    if (uiLanguage === 'UZ') {
+      return '5 ta tarixiy chart tanlang, setup sifatini 1-10 baholang va xatolarni journaling qiling.';
+    }
+    return 'Выберите 5 исторических графиков, оцените сетап по шкале 1-10 и зафиксируйте ошибки в журнале.';
+  }, [lesson?.homework_json, uiLanguage]);
+
+  const remember = useMemo(() => {
+    const conclusion = normalizeInline(pickLocalized(lesson?.conclusion_json, uiLanguage));
+    const additional = normalizeInline(pickLocalized(lesson?.additional_notes_json, uiLanguage));
+    const merged = normalizeInline(`${conclusion} ${additional}`);
+    if (merged) return merged;
+    return keyPoints.slice(0, 3).join(' ');
+  }, [lesson?.additional_notes_json, lesson?.conclusion_json, keyPoints, uiLanguage]);
+
+  const quizItems = useMemo(() => {
+    const fromLessonTest = normalizeQuiz(pickLocalized(lesson?.lesson_test_json, uiLanguage));
+    if (fromLessonTest.length > 0) return fromLessonTest;
+
+    const fromLegacyQuiz = normalizeQuiz(pickLocalized(lesson?.quiz_json, uiLanguage));
+    if (fromLegacyQuiz.length > 0) return fromLegacyQuiz;
+
+    return fallbackQuiz(uiLanguage);
+  }, [lesson?.lesson_test_json, lesson?.quiz_json, uiLanguage]);
+
+  const steps = useMemo(() => {
+    const parsed = normalizeSteps(pickLocalized(lesson?.lesson_steps_json, uiLanguage));
+    if (hasJourneyShape(parsed)) return enrichStepsForUi(parsed);
+    return enrichStepsForUi(
+      buildFallbackJourneySteps(
+        uiLanguage,
+        localizedSummary,
+        localizedContent,
+        practical,
+        commonMistakes,
+        remember,
+        quizItems.length,
+      ),
+    );
+  }, [
+    lesson?.lesson_steps_json,
+    uiLanguage,
+    localizedSummary,
+    localizedContent,
+    practical,
+    commonMistakes,
+    remember,
+    quizItems.length,
+  ]);
+
+  const visualBlocks = useMemo(() => {
+    const parsed = normalizeVisualBlocks(lesson?.visual_blocks_json);
+    if (parsed.length > 0) return parsed;
+
+    if (!lesson?.pdf_path) return [];
+
+    return steps
+      .filter((step) => step.step_type === 'visual' || !!step.visual_hint)
+      .slice(0, 6)
+      .map((step, index) => ({
+        step_id: step.step_id,
+        page_from: Math.max(1, step.page_from || index + 1),
+        page_to: Math.max(Math.max(1, step.page_from || index + 1), step.page_to || step.page_from || index + 1),
+        visual_kind: 'page_fragment' as const,
+        caption_ru: step.title,
+        caption_uz: step.title,
+        importance_ru: step.notes || step.what_to_notice || 'Смотрите на связь контекста и подтверждения.',
+        importance_uz: step.notes || step.what_to_notice || 'Kontekst va tasdiq bog‘lanishini kuzating.',
+        page_excerpt: step.page_text || step.source_excerpt,
+        focus_points_ru: toBulletPoints(step.notes || step.what_to_notice || '', 4),
+        focus_points_uz: toBulletPoints(step.notes || step.what_to_notice || '', 4),
+      }));
+  }, [lesson?.visual_blocks_json, lesson?.pdf_path, steps]);
+
+  useEffect(() => {
+    if (activeStepIndex > Math.max(0, steps.length - 1)) {
+      setActiveStepIndex(Math.max(0, steps.length - 1));
+    }
+  }, [activeStepIndex, steps.length]);
+
+  const currentStep = steps[Math.min(activeStepIndex, Math.max(0, steps.length - 1))];
+
+  const currentVisual = useMemo(() => {
+    if (!currentStep) return null;
+    const fromBlock = visualBlocks.find((item) => item.step_id === currentStep.step_id);
+    if (fromBlock) return fromBlock;
+
+    return {
+      step_id: currentStep.step_id,
+      page_from: Math.max(1, currentStep.page_from || 1),
+      page_to: Math.max(Math.max(1, currentStep.page_from || 1), currentStep.page_to || currentStep.page_from || 1),
+      visual_kind: 'page_fragment' as const,
+      caption_ru: currentStep.title,
+      caption_uz: currentStep.title,
+      importance_ru: currentStep.notes || currentStep.what_to_notice,
+      importance_uz: currentStep.notes || currentStep.what_to_notice,
+      page_excerpt: currentStep.page_text || currentStep.source_excerpt,
+      focus_points_ru: toBulletPoints(currentStep.notes || currentStep.what_to_notice || '', 4),
+      focus_points_uz: toBulletPoints(currentStep.notes || currentStep.what_to_notice || '', 4),
+    } as VisualBlock;
+  }, [currentStep, visualBlocks]);
 
   const ensurePdfBinaryLoaded = async (): Promise<boolean> => {
     if (!lesson?.id || !lesson.pdf_path) return false;
@@ -845,11 +1133,10 @@ export default function LessonPage({ params }: { params: { id: string } }) {
     setPageRenderError(null);
     try {
       const response = await api.get(`/courses/lessons/${lesson.id}/pdf`, { responseType: 'arraybuffer' });
-      pdfBinaryRef.current = response.data;
+      pdfBinaryRef.current = response.data as ArrayBuffer;
       return true;
     } catch (error: any) {
-      pdfBinaryRef.current = null;
-      const message = error.response?.data?.error || 'Failed to load PDF pages';
+      const message = error.response?.data?.error || copy.openPdfError;
       setPageRenderError(message);
       showToast(message);
       return false;
@@ -860,8 +1147,9 @@ export default function LessonPage({ params }: { params: { id: string } }) {
 
   const ensurePageImage = async (page: number) => {
     if (!lesson?.pdf_path) return;
+
     const requestedPage = Math.max(1, Number(page) || 1);
-    if (pageImageByPage[requestedPage]) return;
+    if (pageImageByPageRef.current[requestedPage]) return;
     if (renderingPagesRef.current.has(requestedPage)) return;
 
     const loaded = await ensurePdfBinaryLoaded();
@@ -869,7 +1157,6 @@ export default function LessonPage({ params }: { params: { id: string } }) {
 
     renderingPagesRef.current.add(requestedPage);
     setIsRenderingPageImage(true);
-    setPageRenderError(null);
 
     try {
       const pdfjs = await import('pdfjs-dist');
@@ -886,10 +1173,10 @@ export default function LessonPage({ params }: { params: { id: string } }) {
       const totalPages = Number(pdfDoc?.numPages || requestedPage);
       const safePage = Math.max(1, Math.min(totalPages, requestedPage));
 
-      if (pageImageByPage[safePage]) return;
+      if (pageImageByPageRef.current[safePage]) return;
 
-      const pageObj = await pdfDoc.getPage(safePage);
-      const viewport = pageObj.getViewport({ scale: 1.35 });
+      const pageObject = await pdfDoc.getPage(safePage);
+      const viewport = pageObject.getViewport({ scale: 1.35 });
       const canvas = document.createElement('canvas');
       const context = canvas.getContext('2d');
 
@@ -897,12 +1184,17 @@ export default function LessonPage({ params }: { params: { id: string } }) {
 
       canvas.width = Math.ceil(viewport.width);
       canvas.height = Math.ceil(viewport.height);
-      await pageObj.render({ canvasContext: context, viewport }).promise;
+      await pageObject.render({ canvasContext: context, viewport }).promise;
 
       const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-      setPageImageByPage((prev) => (prev[safePage] ? prev : { ...prev, [safePage]: dataUrl }));
+      setPageImageByPage((prev) => {
+        if (prev[safePage]) return prev;
+        const next = { ...prev, [safePage]: dataUrl };
+        pageImageByPageRef.current = next;
+        return next;
+      });
     } catch (error: any) {
-      const message = error?.message || 'Failed to render page image';
+      const message = error?.message || 'Failed to render lesson page';
       setPageRenderError(message);
       showToast(message);
     } finally {
@@ -911,172 +1203,17 @@ export default function LessonPage({ params }: { params: { id: string } }) {
     }
   };
 
-  const firstName = useMemo(() => {
-    if (!user) return '';
-    return user.name?.split(' ')[0] || user.name;
-  }, [user]);
-
-  const localizedSummary = useMemo(() => {
-    if (!lesson) return '';
-    if (uiLanguage === 'UZ') return normalizeText(lesson.summary_uz || lesson.summary_ru || lesson.summary);
-    return normalizeText(lesson.summary_ru || lesson.summary_uz || lesson.summary);
-  }, [lesson, uiLanguage]);
-
-  const localizedContent = useMemo(() => {
-    if (!lesson) return '';
-    if (uiLanguage === 'UZ') return normalizeText(lesson.content_uz || lesson.content_source || lesson.content_ru || lesson.content);
-    return normalizeText(lesson.content_ru || lesson.content_source || lesson.content_uz || lesson.content);
-  }, [lesson, uiLanguage]);
-
-  const keyPoints = useMemo(() => {
-    const raw = pickLocalized(lesson?.key_points_json, uiLanguage);
-    const normalized = Array.isArray(raw) ? raw.map((item: any) => normalizeText(item)).filter(Boolean).slice(0, 10) : [];
-    return normalized.length > 0 ? normalized : fallbackKeyPoints(uiLanguage);
-  }, [lesson?.key_points_json, uiLanguage]);
-
-  const glossary = useMemo(() => {
-    const raw = pickLocalized(lesson?.glossary_json, uiLanguage);
-    const normalized = normalizeGlossary(raw);
-    return normalized.length > 0 ? normalized : fallbackGlossary(uiLanguage);
-  }, [lesson?.glossary_json, uiLanguage]);
-
-  const practical = useMemo(() => {
-    const raw = normalizeText(pickLocalized(lesson?.practice_notes, uiLanguage));
-    if (raw) return raw;
-    if (uiLanguage === 'UZ') {
-      return "3 ta chartda setupni tekshiring: kirish, stop-loss va targetni oldindan belgilang.";
-    }
-    return 'Проверьте сетап на 3 графиках: заранее определите вход, стоп и цель.';
-  }, [lesson?.practice_notes, uiLanguage]);
-
-  const commonMistakes = useMemo(() => {
-    const raw = pickLocalized(lesson?.common_mistakes_json, uiLanguage);
-    const normalized = Array.isArray(raw) ? raw.map((item: any) => normalizeText(item)).filter(Boolean).slice(0, 8) : [];
-    if (normalized.length > 0) return normalized;
-    return uiLanguage === 'UZ'
-      ? [
-          "Signalni kontekstsiz talqin qilish.",
-          "Stop-lossni rejasiz o'zgartirish.",
-          "Risk qoidalarini buzib lotni oshirish.",
-        ]
-      : [
-          'Интерпретация сигнала без контекста.',
-          'Изменение стоп-лосса без плана.',
-          'Нарушение риск-правил через увеличение объема.',
-        ];
-  }, [lesson?.common_mistakes_json, uiLanguage]);
-
-  const selfCheck = useMemo(() => {
-    const raw = pickLocalized(lesson?.self_check_questions_json, uiLanguage);
-    const normalized = Array.isArray(raw) ? raw.map((item: any) => normalizeText(item)).filter(Boolean).slice(0, 8) : [];
-    if (normalized.length > 0) return normalized;
-    return uiLanguage === 'UZ'
-      ? [
-          "Asosiy signalni qanday tasdiqlaysiz?",
-          "Bitimdan oldin qaysi risk-checklist bandini tekshirasiz?",
-          "Noto'g'ri scenariyda chiqish rejangiz qanday?",
-        ]
-      : [
-          'Как вы подтверждаете главный сигнал урока?',
-          'Какое риск-правило проверяете до входа?',
-          'Какой план выхода при неверном сценарии?',
-        ];
-  }, [lesson?.self_check_questions_json, uiLanguage]);
-
-  const homework = useMemo(() => {
-    const raw = normalizeText(pickLocalized(lesson?.homework_json, uiLanguage));
-    if (raw) return raw;
-    if (uiLanguage === 'UZ') {
-      return "5 ta tarixiy chart tanlang, setup sifatini 1-10 baholang va xatolarni jurnalga yozing.";
-    }
-    return 'Выберите 5 исторических графиков, оцените качество сетапа 1-10 и зафиксируйте ошибки в журнале.';
-  }, [lesson?.homework_json, uiLanguage]);
-
-  const remember = useMemo(() => {
-    const conclusion = normalizeText(pickLocalized(lesson?.conclusion_json, uiLanguage));
-    const additional = normalizeText(pickLocalized(lesson?.additional_notes_json, uiLanguage));
-    const merged = `${conclusion} ${additional}`.trim();
-    if (merged) return merged;
-    return keyPoints.slice(0, 3).join(' ');
-  }, [lesson?.conclusion_json, lesson?.additional_notes_json, keyPoints, uiLanguage]);
-
-  const quizItems = useMemo(() => {
-    const fromLessonTest = normalizeQuiz(pickLocalized(lesson?.lesson_test_json, uiLanguage));
-    if (fromLessonTest.length > 0) return fromLessonTest;
-
-    const fromLegacyQuiz = normalizeQuiz(pickLocalized(lesson?.quiz_json, uiLanguage));
-    if (fromLegacyQuiz.length > 0) return fromLegacyQuiz;
-
-    return fallbackQuiz(uiLanguage);
-  }, [lesson?.lesson_test_json, lesson?.quiz_json, uiLanguage]);
-
-  const steps = useMemo(() => {
-    const parsed = normalizeSteps(pickLocalized(lesson?.lesson_steps_json, uiLanguage));
-    if (hasJourneyShape(parsed)) return enrichStepsForUi(parsed);
-    return enrichStepsForUi(buildFallbackJourneySteps(uiLanguage, localizedSummary, localizedContent, practical, commonMistakes, remember, quizItems.length));
-  }, [lesson?.lesson_steps_json, uiLanguage, localizedSummary, localizedContent, practical, commonMistakes, remember, quizItems.length]);
-
-  const visualBlocks = useMemo(() => {
-    const parsed = normalizeVisualBlocks(lesson?.visual_blocks_json);
-    if (parsed.length > 0) return parsed;
-
-    if (!lesson?.pdf_path) return [];
-
-    return steps
-      .filter((step) => step.step_type === 'visual' || !!step.visual_hint)
-      .slice(0, 4)
-      .map((step, index) => ({
-        step_id: step.step_id,
-        page_from: Math.max(1, step.page_from || index + 1),
-        page_to: Math.max(Math.max(1, step.page_from || index + 1), step.page_to || step.page_from || index + 1),
-        visual_kind: 'page_fragment' as const,
-        caption_ru: step.title,
-        caption_uz: step.title,
-        importance_ru: step.what_to_notice || 'Смотрите на связку контекста и подтверждения.',
-        importance_uz: step.what_to_notice || "Kontekst va tasdiq bog'lanishiga e'tibor bering.",
-        page_excerpt: step.source_excerpt,
-        focus_points_ru: splitSentences(step.what_to_notice || '').slice(0, 3),
-        focus_points_uz: splitSentences(step.what_to_notice || '').slice(0, 3),
-      }));
-  }, [lesson?.visual_blocks_json, lesson?.pdf_path, steps]);
-
   useEffect(() => {
-    if (activeStepIndex > Math.max(0, steps.length - 1)) {
-      setActiveStepIndex(Math.max(0, steps.length - 1));
-    }
-  }, [activeStepIndex, steps.length]);
-
-  const currentStep = steps[Math.min(activeStepIndex, Math.max(0, steps.length - 1))];
-
-  const currentVisual = useMemo(() => {
-    if (!currentStep) return null;
-    const fromBlock = visualBlocks.find((item) => item.step_id === currentStep.step_id);
-    if (fromBlock) return fromBlock;
-    return {
-      step_id: currentStep.step_id,
-      page_from: Math.max(1, currentStep.page_from || 1),
-      page_to: Math.max(Math.max(1, currentStep.page_from || 1), currentStep.page_to || currentStep.page_from || 1),
-      visual_kind: 'page_fragment' as const,
-      caption_ru: currentStep.title,
-      caption_uz: currentStep.title,
-      importance_ru: currentStep.notes || currentStep.what_to_notice,
-      importance_uz: currentStep.notes || currentStep.what_to_notice,
-      page_excerpt: currentStep.page_text || currentStep.source_excerpt,
-      focus_points_ru: splitSentences(currentStep.notes || currentStep.what_to_notice || '').slice(0, 3),
-      focus_points_uz: splitSentences(currentStep.notes || currentStep.what_to_notice || '').slice(0, 3),
-    } as VisualBlock;
-  }, [currentStep, visualBlocks]);
-
-  useEffect(() => {
-    if (!currentVisual || !lesson?.pdf_path) return;
-    void ensurePageImage(currentVisual.page_from || currentStep?.page_from || 1);
-  }, [currentVisual?.step_id, currentVisual?.page_from, currentStep?.page_from, lesson?.pdf_path]);
+    if (!currentStep || !lesson?.pdf_path) return;
+    const targetPage = Math.max(1, Number(currentVisual?.page_from || currentStep.page_from || 1));
+    void ensurePageImage(targetPage);
+  }, [currentStep?.step_id, currentVisual?.page_from, lesson?.pdf_path]);
 
   useEffect(() => {
     setVisitedSteps((prev) => {
-      const copySet = new Set(prev);
-      copySet.add(activeStepIndex);
-      return copySet;
+      const next = new Set(prev);
+      next.add(activeStepIndex);
+      return next;
     });
     setAlternateExplanation('');
   }, [activeStepIndex]);
@@ -1106,8 +1243,6 @@ export default function LessonPage({ params }: { params: { id: string } }) {
       sourceLanguage: lesson.source_language || null,
       lessonSummary: localizedSummary,
       lessonContent: localizedContent.slice(0, 4500),
-      lessonSteps: steps,
-      visualBlocks,
       keyPoints,
       glossary,
       practice: practical,
@@ -1152,25 +1287,49 @@ export default function LessonPage({ params }: { params: { id: string } }) {
   const toggleFavorite = () => {
     if (!lesson?.id) return;
     const key = `lesson_favorite_${lesson.id}`;
-    const next = !isFavorite;
-    setIsFavorite(next);
-    if (next) localStorage.setItem(key, '1');
-    else localStorage.removeItem(key);
-    showToast(next ? copy.favoriteAdded : copy.favoriteRemoved);
+    const nextValue = !isFavorite;
+    setIsFavorite(nextValue);
+    if (nextValue) {
+      localStorage.setItem(key, '1');
+      showToast(copy.favoriteAdded);
+    } else {
+      localStorage.removeItem(key);
+      showToast(copy.favoriteRemoved);
+    }
+  };
+
+  const handleOpenOriginalPdf = async () => {
+    if (!lesson?.pdf_path || !lesson?.id || isOpeningPdf) {
+      if (!lesson?.pdf_path) showToast(copy.openPdfUnavailable);
+      return;
+    }
+
+    setIsOpeningPdf(true);
+    try {
+      const loaded = await ensurePdfBinaryLoaded();
+      if (!loaded || !pdfBinaryRef.current) {
+        showToast(copy.openPdfError);
+        return;
+      }
+
+      const blob = new Blob([pdfBinaryRef.current], { type: 'application/pdf' });
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    } catch {
+      showToast(copy.openPdfError);
+    } finally {
+      setIsOpeningPdf(false);
+    }
   };
 
   const goToStep = (index: number) => {
-    const safe = Math.max(0, Math.min(steps.length - 1, index));
-    setActiveStepIndex(safe);
+    const safeIndex = Math.max(0, Math.min(steps.length - 1, index));
+    setActiveStepIndex(safeIndex);
   };
 
-  const goToNextStep = () => {
-    goToStep(activeStepIndex + 1);
-  };
-
-  const goToPrevStep = () => {
-    goToStep(activeStepIndex - 1);
-  };
+  const goToNextStep = () => goToStep(activeStepIndex + 1);
+  const goToPrevStep = () => goToStep(activeStepIndex - 1);
 
   const handleUnderstood = async () => {
     if (activeStepIndex < steps.length - 1) {
@@ -1191,27 +1350,29 @@ export default function LessonPage({ params }: { params: { id: string } }) {
   const handleExplainDifferently = async () => {
     if (!lesson || !currentStep || isReframing) return;
     setIsReframing(true);
+
+    const currentExplanation = normalizeInline(currentStep.ai_explanation || currentStep.explanation);
     try {
       const prompt = uiLanguage === 'UZ'
         ? [
-            `Ushbu qadamni boshqacha, soddaroq va aniqroq tushuntiring.`,
+            'Ushbu qadamni boshqacha, sodda va chuqurroq tushuntiring.',
             `Qadam: ${currentStep.title}`,
             `Qadam turi: ${currentStep.step_type}`,
-            `Mavjud izoh: ${stepExplanationText}`,
-            `Iltimos:`,
-            `1) oddiy til`,
-            `2) amaliy misol`,
-            `3) yangi boshlovchi nimani adashtirmasligi kerak`,
+            `Mavjud izoh: ${currentExplanation}`,
+            'Javobni 3 qismda bering:',
+            '1) oddiy talqin',
+            '2) chartdagi amaliy misol',
+            '3) yangi boshlovchi adashadigan joy',
           ].join('\n')
         : [
             'Объясни этот шаг иначе: проще, глубже и практичнее.',
             `Шаг: ${currentStep.title}`,
             `Тип шага: ${currentStep.step_type}`,
-            `Текущее объяснение: ${stepExplanationText}`,
+            `Текущее объяснение: ${currentExplanation}`,
             'Сделай ответ в 3 блоках:',
             '1) простое объяснение',
-            '2) практический пример для трейдинга',
-            '3) что новичок может перепутать',
+            '2) пример применения на графике',
+            '3) где новичок путается',
           ].join('\n');
 
       const response = await api.post('/ai/chat', {
@@ -1219,9 +1380,9 @@ export default function LessonPage({ params }: { params: { id: string } }) {
         context: buildLessonContext(currentStep),
       });
 
-      const alt = normalizeText(response.data?.response);
-      if (alt) {
-        setAlternateExplanation(alt);
+      const alternate = normalizeInline(response.data?.response);
+      if (alternate) {
+        setAlternateExplanation(alternate);
         showToast(copy.reframedToast);
       } else {
         showToast(copy.reframedError);
@@ -1243,7 +1404,7 @@ export default function LessonPage({ params }: { params: { id: string } }) {
   const handleAskAi = () => {
     const prefill = uiLanguage === 'UZ'
       ? [
-          'Ushbu darsni mentor kabi to`liq tahlil qiling.',
+          copy.askAiPrefill,
           `Course: ${lesson?.course_title || ''}`,
           `Module: ${lesson?.module_title || ''}`,
           `Lesson: ${lesson?.title || ''}`,
@@ -1251,14 +1412,13 @@ export default function LessonPage({ params }: { params: { id: string } }) {
           `Summary: ${localizedSummary}`,
         ].join('\n')
       : [
-          'Разберите этот урок как наставник и дайте практический план.',
+          copy.askAiPrefill,
           `Course: ${lesson?.course_title || ''}`,
           `Module: ${lesson?.module_title || ''}`,
           `Lesson: ${lesson?.title || ''}`,
           `Current step: ${currentStep?.title || ''}`,
           `Summary: ${localizedSummary}`,
         ].join('\n');
-
     pushAiWithContext(prefill, currentStep);
   };
 
@@ -1266,632 +1426,818 @@ export default function LessonPage({ params }: { params: { id: string } }) {
   const visualCaption = uiLanguage === 'UZ' ? currentVisual?.caption_uz : currentVisual?.caption_ru;
   const visualFocusPoints = uiLanguage === 'UZ' ? currentVisual?.focus_points_uz : currentVisual?.focus_points_ru;
 
-  const stepExplanationText = normalizeText(currentStep?.ai_explanation || currentStep?.explanation || '');
-  const stepNotesText = normalizeText(currentStep?.notes || currentStep?.what_to_notice || '');
-  const stepPracticalText = normalizeText(
+  const stepExplanationText = normalizeInline(currentStep?.ai_explanation || currentStep?.explanation || localizedContent);
+  const stepNotesText = normalizeInline(currentStep?.notes || currentStep?.what_to_notice || '');
+  const stepPracticalText = normalizeInline(
     currentStep?.practical_interpretation || (currentStep?.step_type === 'practice' ? practical : ''),
   );
-  const stepPageText = normalizeText(currentStep?.page_text || currentStep?.source_excerpt || '');
+  const stepPageText = normalizeInline(currentStep?.page_text || currentStep?.source_excerpt || '');
+
+  const mentorParagraphs = useMemo(
+    () => toMentorParagraphs(stepExplanationText),
+    [stepExplanationText],
+  );
+
+  const notePoints = useMemo(
+    () => toBulletPoints(stepNotesText, 6),
+    [stepNotesText],
+  );
+
+  const practicalPoints = useMemo(
+    () => parsePracticalSteps(stepPracticalText, 5),
+    [stepPracticalText],
+  );
 
   const currentVisualPage = Math.max(1, Number(currentVisual?.page_from || currentStep?.page_from || 1));
-  const rawStepImage = normalizeText(currentStep?.page_image || '');
+  const rawStepImage = normalizeInline(currentStep?.page_image || '');
   const directStepImage = rawStepImage && !rawStepImage.startsWith('page:') ? rawStepImage : '';
   const renderedPageImage = pageImageByPage[currentVisualPage] || '';
   const currentPageImage = directStepImage || renderedPageImage;
 
-  if (!user) return null;
+  const canSubmitQuiz = quizItems.length > 0 && Object.keys(quizAnswers).length === quizItems.length;
+
+  const pageStyle: React.CSSProperties = {
+    background: '#f5f1e8',
+    color: '#1f2933',
+    fontFamily: 'var(--font-lesson-body)',
+    ['--lesson-bg' as any]: '#f5f1e8',
+    ['--lesson-paper' as any]: '#fffdf8',
+    ['--lesson-line' as any]: '#e7dece',
+    ['--lesson-ink' as any]: '#1f2933',
+    ['--lesson-muted' as any]: '#677484',
+    ['--lesson-accent' as any]: '#0f766e',
+    ['--lesson-accent-soft' as any]: '#d9efe9',
+    ['--lesson-warm' as any]: '#9a5c15',
+    ['--lesson-danger' as any]: '#b42318',
+  };
+
+  if (!user) {
+    return (
+      <div className={cn(displayFont.variable, bodyFont.variable, 'min-h-screen flex items-center justify-center')} style={pageStyle}>
+        <Loader2 className="h-8 w-8 animate-spin" style={{ color: 'var(--lesson-accent)' }} />
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen text-white relative overflow-hidden" style={{ background: '#0B1220' }}>
-      <div className="pointer-events-none absolute -top-40 left-[-10%] h-[420px] w-[420px] rounded-full opacity-40 blur-3xl" style={{ background: 'radial-gradient(circle, rgba(123,63,228,0.35), transparent 70%)' }} />
-      <div className="pointer-events-none absolute top-[35%] right-[-8%] h-[360px] w-[360px] rounded-full opacity-40 blur-3xl" style={{ background: 'radial-gradient(circle, rgba(42,169,255,0.3), transparent 70%)' }} />
+    <div className={cn(displayFont.variable, bodyFont.variable, 'relative min-h-screen overflow-x-clip')} style={pageStyle}>
+      <div
+        className="pointer-events-none absolute left-[-10%] top-[-8%] h-[320px] w-[320px] rounded-full blur-3xl"
+        style={{ background: 'radial-gradient(circle, rgba(15,118,110,0.2), transparent 70%)' }}
+      />
+      <div
+        className="pointer-events-none absolute bottom-[-12%] right-[-8%] h-[380px] w-[380px] rounded-full blur-3xl"
+        style={{ background: 'radial-gradient(circle, rgba(154,92,21,0.16), transparent 72%)' }}
+      />
 
       <AnimatePresence>
         {toastMessage && (
           <motion.div
-            initial={{ opacity: 0, y: -60 }}
+            initial={{ opacity: 0, y: -30 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -60 }}
-            className="fixed top-5 left-1/2 z-[200] px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 text-white text-sm font-semibold"
-            style={{ transform: 'translateX(-50%)', background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)', boxShadow: '0 8px 32px rgba(123,63,228,0.45)' }}
+            exit={{ opacity: 0, y: -30 }}
+            className="fixed left-1/2 top-4 z-[80] -translate-x-1/2 rounded-xl border px-4 py-2.5 text-sm font-medium shadow-lg"
+            style={{
+              background: 'rgba(255,253,248,0.98)',
+              borderColor: 'var(--lesson-line)',
+              color: 'var(--lesson-ink)',
+              boxShadow: '0 12px 30px rgba(15, 23, 42, 0.12)',
+            }}
           >
-            <Sparkles size={14} />
             {toastMessage}
           </motion.div>
         )}
       </AnimatePresence>
 
-      <nav className="sticky top-0 z-[100] px-6 md:px-10 py-4 flex items-center justify-between" style={{ background: 'rgba(11,18,32,0.82)', backdropFilter: 'blur(18px)', borderBottom: '1px solid rgba(123,63,228,0.16)' }}>
-        <div className="flex items-center gap-3">
-          <Image
-            src="/logo.png"
-            alt="TradeMentor AI"
-            width={150}
-            height={40}
-            className="object-contain cursor-pointer"
-            priority
-            onClick={() => router.push('/dashboard/academy')}
-          />
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div className="flex items-center bg-[#111A2F] rounded-xl p-1 border border-white/10">
+      <header
+        className="sticky top-0 z-40 border-b backdrop-blur-xl"
+        style={{
+          borderColor: 'var(--lesson-line)',
+          background: 'rgba(245, 241, 232, 0.86)',
+        }}
+      >
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 md:px-8">
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setLanguage('RU')}
-              className={cn('px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all', language === 'RU' ? 'text-white' : 'text-slate-500 hover:text-slate-300')}
-              style={language === 'RU' ? { background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)' } : undefined}
+              onClick={() => router.push(lesson ? `/dashboard/courses/${lesson.course_id}` : '/dashboard/academy')}
+              className="inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm font-medium transition"
+              style={{
+                borderColor: 'var(--lesson-line)',
+                color: 'var(--lesson-ink)',
+                background: 'var(--lesson-paper)',
+              }}
             >
-              RU
+              <ArrowLeft size={15} />
+              {copy.backToCourse}
             </button>
-            <button
-              onClick={() => setLanguage('UZ')}
-              className={cn('px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all', language === 'UZ' ? 'text-white' : 'text-slate-500 hover:text-slate-300')}
-              style={language === 'UZ' ? { background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)' } : undefined}
-            >
-              UZ
-            </button>
-          </div>
 
-          <div className="relative group">
-            <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl cursor-pointer" style={{ background: '#111A2F', border: '1px solid rgba(123,63,228,0.2)' }}>
-              <div className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold text-white" style={{ background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)' }}>
-                {firstName.charAt(0)}
-              </div>
-              <span className="hidden sm:block text-sm font-semibold text-white">{firstName}</span>
-              <ChevronDown size={14} className="text-slate-500 group-hover:text-white transition-colors" />
-            </div>
-
-            <div className="absolute right-0 mt-2 w-48 rounded-2xl p-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[110]" style={{ background: '#111A2F', border: '1px solid rgba(123,63,228,0.2)', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}>
-              <button onClick={() => router.push('/dashboard/profile')} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all text-left">
-                <User size={16} /> {t('common.profile')}
-              </button>
-              <button onClick={() => router.push('/dashboard/settings')} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all text-left">
-                <Settings size={16} /> {t('common.settings')}
-              </button>
-              <button onClick={() => router.push('/dashboard/faq')} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all text-left">
-                <BookOpen size={16} /> {t('common.faq')}
-              </button>
-              <div className="h-px bg-white/5 my-1" />
-              <button onClick={handleLogout} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-red-400 hover:bg-red-400/10 transition-all text-left">
-                <LogOutIcon size={16} /> {t('common.logout')}
-              </button>
+            <div className="hidden md:block text-sm" style={{ color: 'var(--lesson-muted)' }}>
+              {lesson?.course_title || 'TradeMentor'}
             </div>
           </div>
+
+          <div className="hidden lg:flex min-w-[260px] items-center gap-3">
+            <span className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--lesson-muted)' }}>
+              {copy.progress}
+            </span>
+            <div className="h-1.5 w-full overflow-hidden rounded-full" style={{ background: '#eadfce' }}>
+              <motion.div
+                key={progressPercent}
+                initial={{ width: 0 }}
+                animate={{ width: `${progressPercent}%` }}
+                transition={{ duration: 0.4, ease: 'easeOut' }}
+                className="h-full rounded-full"
+                style={{ background: 'linear-gradient(90deg, #0f766e, #1d9a8f)' }}
+              />
+            </div>
+            <span className="text-sm font-semibold" style={{ color: 'var(--lesson-ink)' }}>
+              {activeStepIndex + 1}/{Math.max(steps.length, 1)}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={goToPrevStep}
+              disabled={activeStepIndex === 0}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border transition disabled:opacity-40"
+              style={{ borderColor: 'var(--lesson-line)', background: 'var(--lesson-paper)', color: 'var(--lesson-ink)' }}
+              aria-label={copy.prevStep}
+            >
+              <ChevronLeft size={16} />
+            </button>
+
+            <button
+              onClick={goToNextStep}
+              disabled={activeStepIndex >= steps.length - 1}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border transition disabled:opacity-40"
+              style={{ borderColor: 'var(--lesson-line)', background: 'var(--lesson-paper)', color: 'var(--lesson-ink)' }}
+              aria-label={copy.nextStep}
+            >
+              <ChevronRight size={16} />
+            </button>
+
+            <div className="ml-1 flex items-center rounded-full border p-1" style={{ borderColor: 'var(--lesson-line)', background: 'var(--lesson-paper)' }}>
+              <button
+                onClick={() => setLanguage('RU')}
+                className={cn(
+                  'rounded-full px-2.5 py-1 text-[11px] font-semibold transition',
+                  uiLanguage === 'RU' ? 'text-white' : '',
+                )}
+                style={uiLanguage === 'RU'
+                  ? { background: 'var(--lesson-accent)' }
+                  : { color: 'var(--lesson-muted)' }}
+              >
+                RU
+              </button>
+              <button
+                onClick={() => setLanguage('UZ')}
+                className={cn(
+                  'rounded-full px-2.5 py-1 text-[11px] font-semibold transition',
+                  uiLanguage === 'UZ' ? 'text-white' : '',
+                )}
+                style={uiLanguage === 'UZ'
+                  ? { background: 'var(--lesson-accent)' }
+                  : { color: 'var(--lesson-muted)' }}
+              >
+                UZ
+              </button>
+            </div>
+
+            <button
+              onClick={toggleFavorite}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border transition"
+              style={{
+                borderColor: isFavorite ? '#d4b381' : 'var(--lesson-line)',
+                background: isFavorite ? '#fff5de' : 'var(--lesson-paper)',
+                color: isFavorite ? 'var(--lesson-warm)' : 'var(--lesson-muted)',
+              }}
+              aria-label={copy.addFavorite}
+            >
+              <Bookmark size={15} />
+            </button>
+          </div>
         </div>
-      </nav>
+      </header>
 
-      <main className="relative z-[1] flex-1 px-6 md:px-10 py-10 max-w-7xl mx-auto w-full">
-        {isPreparing ? (
-          <div className="min-h-[72vh] flex items-center justify-center">
-            <div className="w-full max-w-3xl rounded-3xl p-8 md:p-10" style={{ background: 'linear-gradient(135deg, rgba(123,63,228,0.22), rgba(42,169,255,0.15))', border: '1px solid rgba(123,63,228,0.34)' }}>
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: 'rgba(123,63,228,0.28)' }}>
-                  <BrainCircuit size={22} style={{ color: '#D8CCFF' }} />
-                </div>
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.2em]" style={{ color: '#B8C8DE' }}>AI Lesson Preparation</p>
-                  <h2 className="text-2xl md:text-3xl font-black text-white mt-1" style={{ fontFamily: 'Outfit, sans-serif' }}>{copy.loadingTitle}</h2>
-                </div>
-              </div>
-
-              <p className="text-sm mt-5" style={{ color: '#D5E2F4' }}>{prepareMessage}</p>
-
-              <div className="mt-4 h-2 rounded-full" style={{ background: 'rgba(123,63,228,0.22)' }}>
-                <div className="h-2 rounded-full transition-all duration-300" style={{ width: `${prepareProgress}%`, background: 'linear-gradient(90deg, #7B3FE4, #2AA9FF)' }} />
-              </div>
-
-              <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-2">
-                {copy.loadingTags.map((item) => (
-                  <div key={item} className="rounded-lg px-3 py-2 text-xs font-semibold" style={{ background: 'rgba(11,18,32,0.5)', color: '#C8D4E8', border: '1px solid rgba(123,140,166,0.15)' }}>
-                    {item}
-                  </div>
-                ))}
-              </div>
+      <main className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-14 pt-8 md:px-8 md:pt-10">
+        {isLoading ? (
+          <div className="mx-auto mt-12 max-w-3xl rounded-[30px] border px-7 py-9 md:px-10 md:py-12" style={{ borderColor: 'var(--lesson-line)', background: 'var(--lesson-paper)' }}>
+            <div className="flex items-center gap-3" style={{ color: 'var(--lesson-accent)' }}>
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="text-sm font-semibold uppercase tracking-[0.16em]">AI Tutor Layer</span>
+            </div>
+            <h2 className="mt-4 text-3xl leading-tight" style={{ fontFamily: 'var(--font-lesson-display)' }}>
+              {copy.loadingTitle}
+            </h2>
+            <p className="mt-3 text-base" style={{ color: 'var(--lesson-muted)' }}>
+              {copy.loadingHint}
+            </p>
+            <div className="mt-8 space-y-3">
+              {[0, 1, 2].map((idx) => (
+                <div key={`skeleton-${idx}`} className="h-3 w-full rounded-full" style={{ background: idx === 1 ? '#e7e0d5' : '#efe8dc' }} />
+              ))}
             </div>
           </div>
         ) : !lesson ? (
-          <div className="glass-card p-10 text-center" style={{ border: '2px dashed rgba(123,63,228,0.2)' }}>
-            <FileText size={30} style={{ color: '#7B3FE4' }} className="mx-auto mb-3" />
-            <p className="text-white font-bold">{copy.lessonNotFound}</p>
-            <p className="text-sm mt-1" style={{ color: '#7B8CA6' }}>{copy.lessonNotFoundHint}</p>
+          <div className="mx-auto mt-16 max-w-2xl rounded-[28px] border px-7 py-9 text-center" style={{ borderColor: 'var(--lesson-line)', background: 'var(--lesson-paper)' }}>
+            <h2 className="text-3xl" style={{ fontFamily: 'var(--font-lesson-display)' }}>{copy.notFound}</h2>
+            <p className="mt-3 text-sm" style={{ color: 'var(--lesson-muted)' }}>
+              {loadError || copy.notFoundHint}
+            </p>
           </div>
         ) : (
           <>
-            <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
-              <button
-                onClick={() => router.push(`/dashboard/courses/${lesson.course_id}`)}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all"
-                style={{ background: '#111A2F', border: '1px solid rgba(123,63,228,0.2)', color: '#A87BFF' }}
-              >
-                <ArrowLeft size={16} /> {copy.back}
-              </button>
+            <motion.section
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, ease: 'easeOut' }}
+              className="rounded-[34px] border px-6 py-7 md:px-10 md:py-10"
+              style={{
+                borderColor: 'var(--lesson-line)',
+                background: 'linear-gradient(165deg, #fffdf8 0%, #f8f3e9 100%)',
+                boxShadow: '0 18px 48px rgba(20, 30, 38, 0.08)',
+              }}
+            >
+              <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--lesson-muted)' }}>
+                {lesson.course_title} · {lesson.module_title}
+              </p>
 
-              <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'rgba(11,18,32,0.5)', border: '1px solid rgba(123,140,166,0.22)' }}>
-                <Circle size={10} style={{ color: '#2AA9FF' }} />
-                <span className="text-xs font-semibold" style={{ color: '#C8D4E8' }}>
-                  Step {activeStepIndex + 1}/{steps.length} · {progressPercent}%
+              <h1 className="mt-3 text-3xl leading-tight md:text-5xl" style={{ fontFamily: 'var(--font-lesson-display)', color: 'var(--lesson-ink)' }}>
+                {lesson.title}
+              </h1>
+
+              <p className="mt-4 max-w-4xl text-base leading-8 md:text-lg" style={{ color: '#374251' }}>
+                {localizedSummary}
+              </p>
+
+              <div className="mt-5 flex flex-wrap items-center gap-2.5 text-xs font-semibold">
+                <span className="rounded-full px-3 py-1" style={{ background: '#dff0eb', color: '#0f766e' }}>
+                  {copy.type}: {lesson.lesson_type || 'theory'}
+                </span>
+                <span className="rounded-full px-3 py-1" style={{ background: '#f2e9db', color: '#9a5c15' }}>
+                  {copy.difficulty}: {lesson.difficulty_level || 'Beginner'}
+                </span>
+                <span className="rounded-full px-3 py-1" style={{ background: '#e8edf4', color: '#41526a' }}>
+                  <Languages size={12} className="mr-1 inline" />
+                  {copy.source}: {lesson.source_language || 'N/A'}
+                </span>
+                {lesson.source_section && (
+                  <span className="rounded-full px-3 py-1" style={{ background: '#f5f1e8', color: '#556170', border: '1px solid var(--lesson-line)' }}>
+                    {copy.sourceSection}: {lesson.source_section}
+                  </span>
+                )}
+                <span className="rounded-full px-3 py-1" style={{ background: lesson.is_completed ? '#e0f2e9' : '#f6ecd9', color: lesson.is_completed ? '#116149' : '#8a5416' }}>
+                  {lesson.is_completed ? copy.completed : copy.inProgress}
                 </span>
               </div>
-            </div>
 
-            <section className="rounded-3xl p-6 md:p-7 relative overflow-hidden" style={{ background: 'linear-gradient(135deg, rgba(123,63,228,0.22), rgba(42,169,255,0.1))', border: '1px solid rgba(123,63,228,0.3)' }}>
-              <div className="absolute -right-14 -top-14 w-52 h-52 rounded-full blur-3xl" style={{ background: 'rgba(42,169,255,0.18)' }} />
-              <div className="absolute -left-10 -bottom-16 w-52 h-52 rounded-full blur-3xl" style={{ background: 'rgba(123,63,228,0.2)' }} />
+              <div className="mt-6 flex flex-wrap gap-2.5">
+                <button
+                  onClick={markLessonCompleted}
+                  disabled={lesson.is_completed || isCompleting}
+                  className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+                  style={{
+                    background: lesson.is_completed ? '#e0f2e9' : '#d9efe9',
+                    color: lesson.is_completed ? '#0f5d46' : '#0f766e',
+                  }}
+                >
+                  {isCompleting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                  {lesson.is_completed ? copy.completed : copy.markComplete}
+                </button>
 
-              <div className="relative z-[1]">
-                <p className="text-xs font-black uppercase tracking-widest" style={{ color: '#B5C8E2' }}>
-                  {lesson.course_title} · {lesson.module_title}
-                </p>
-                <h1 className="text-3xl md:text-4xl font-black mt-2" style={{ fontFamily: 'Outfit, sans-serif' }}>{lesson.title}</h1>
-                <p className="mt-3 text-sm leading-7 max-w-4xl" style={{ color: '#DCE7F7' }}>{localizedSummary}</p>
+                <button
+                  onClick={handleAskAi}
+                  className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white transition"
+                  style={{ background: 'linear-gradient(120deg, #0f766e, #1d9a8f)' }}
+                >
+                  <Brain size={14} />
+                  {copy.askAi}
+                </button>
 
-                <div className="mt-4 flex items-center gap-2 flex-wrap">
-                  <span className="text-[11px] font-black uppercase tracking-wide px-2.5 py-1 rounded-md" style={{ background: 'rgba(42,169,255,0.14)', border: '1px solid rgba(42,169,255,0.3)', color: '#67D5FF' }}>
-                    {lesson.lesson_type || 'theory'}
-                  </span>
-                  <span className="text-[11px] font-black uppercase tracking-wide px-2.5 py-1 rounded-md" style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', color: '#6EE7B7' }}>
-                    {lesson.difficulty_level || 'Beginner'}
-                  </span>
-                  <span className="text-[11px] font-black uppercase tracking-wide px-2.5 py-1 rounded-md" style={{ background: 'rgba(123,63,228,0.14)', border: '1px solid rgba(123,63,228,0.3)', color: '#D8CCFF' }}>
-                    <Languages size={12} className="inline mr-1" /> {lesson.source_language || 'UNKNOWN'}
-                  </span>
-                  {lesson.source_section && (
-                    <span className="text-[11px] font-semibold px-2.5 py-1 rounded-md" style={{ background: 'rgba(11,18,32,0.55)', border: '1px solid rgba(123,140,166,0.28)', color: '#B8C8DE' }}>
-                      {lesson.source_section}
-                    </span>
-                  )}
-                </div>
+                <button
+                  onClick={toggleFavorite}
+                  className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition"
+                  style={{
+                    borderColor: isFavorite ? '#d4b381' : 'var(--lesson-line)',
+                    background: isFavorite ? '#fff5de' : 'var(--lesson-paper)',
+                    color: isFavorite ? 'var(--lesson-warm)' : 'var(--lesson-ink)',
+                  }}
+                >
+                  <Bookmark size={14} />
+                  {isFavorite ? copy.inFavorite : copy.addFavorite}
+                </button>
 
-                <div className="mt-5 flex flex-wrap gap-2">
-                  <button
-                    onClick={markLessonCompleted}
-                    disabled={lesson.is_completed || isCompleting}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold disabled:opacity-50"
-                    style={{ background: 'rgba(16,185,129,0.14)', border: '1px solid rgba(16,185,129,0.36)', color: '#6EE7B7' }}
-                  >
-                    {isCompleting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                    {lesson.is_completed ? copy.completed : copy.markComplete}
-                  </button>
-
-                  <button
-                    onClick={handleAskAi}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white"
-                    style={{ background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)', boxShadow: '0 6px 26px rgba(123,63,228,0.35)' }}
-                  >
-                    <Brain size={14} /> {copy.askAi}
-                  </button>
-
-                  <button
-                    onClick={toggleFavorite}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold"
-                    style={{
-                      background: isFavorite ? 'rgba(250,204,21,0.14)' : '#111A2F',
-                      border: `1px solid ${isFavorite ? 'rgba(250,204,21,0.42)' : 'rgba(123,140,166,0.3)'}`,
-                      color: isFavorite ? '#FDE68A' : '#D5E2F4',
-                    }}
-                  >
-                    <Bookmark size={14} />
-                    {isFavorite ? copy.inFavorite : copy.addFavorite}
-                  </button>
-
-                </div>
+                <button
+                  onClick={handleOpenOriginalPdf}
+                  disabled={!lesson.pdf_path || isOpeningPdf || isLoadingPdf}
+                  className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ borderColor: 'var(--lesson-line)', background: 'var(--lesson-paper)', color: 'var(--lesson-ink)' }}
+                >
+                  {isOpeningPdf ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
+                  {copy.openOriginalPdf}
+                </button>
               </div>
-            </section>
+            </motion.section>
 
-            <section className="mt-4 rounded-2xl p-4" style={{ background: 'rgba(11,18,32,0.6)', border: '1px solid rgba(123,63,228,0.18)' }}>
-              <div className="flex items-center justify-between gap-3 flex-wrap">
+            <section className="mt-8">
+              <div className="mb-3 flex items-end justify-between gap-3">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-[0.16em]" style={{ color: '#A87BFF' }}>{copy.journey}</p>
-                  <p className="text-xs mt-1" style={{ color: '#9AB1D2' }}>{copy.journeyHint}</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--lesson-muted)' }}>
+                    {copy.lessonFlow}
+                  </p>
+                  <p className="mt-1 text-sm" style={{ color: 'var(--lesson-muted)' }}>
+                    {copy.lessonFlowHint}
+                  </p>
                 </div>
+                <span className="text-sm font-semibold" style={{ color: 'var(--lesson-ink)' }}>
+                  {progressPercent}%
+                </span>
               </div>
 
-              <div className="mt-3 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-                {steps.map((step, index) => {
-                  const isActive = index === activeStepIndex;
-                  const isVisited = visitedSteps.has(index);
-                  return (
-                    <button
-                      key={step.step_id}
-                      onClick={() => goToStep(index)}
-                      className="min-w-[210px] text-left rounded-xl px-3 py-2.5 transition-all"
-                      style={isActive
-                        ? { background: 'rgba(123,63,228,0.22)', border: '1px solid rgba(123,63,228,0.48)' }
-                        : { background: 'rgba(17,26,47,0.78)', border: '1px solid rgba(123,140,166,0.2)' }}
-                    >
-                      <p className="text-[11px] font-black uppercase" style={{ color: isActive ? '#D8CCFF' : '#7B8CA6' }}>
-                        Step {index + 1} {isVisited ? '•' : ''}
-                      </p>
-                      <p className="text-sm mt-1 line-clamp-2" style={{ color: isActive ? '#FFFFFF' : '#C8D4E8' }}>
-                        {step.title}
-                      </p>
-                    </button>
-                  );
-                })}
+              <div className="overflow-x-auto pb-2">
+                <ol className="inline-flex min-w-full gap-5 border-b pb-3" style={{ borderColor: 'var(--lesson-line)' }}>
+                  {steps.map((step, index) => {
+                    const active = index === activeStepIndex;
+                    const visited = visitedSteps.has(index);
+                    return (
+                      <li key={step.step_id}>
+                        <button
+                          onClick={() => goToStep(index)}
+                          className="group text-left transition"
+                        >
+                          <p
+                            className="text-[11px] font-semibold uppercase tracking-[0.14em]"
+                            style={{ color: active ? 'var(--lesson-accent)' : visited ? '#5e6f82' : '#94a0ae' }}
+                          >
+                            {copy.stepLabel} {index + 1}
+                          </p>
+                          <p
+                            className="mt-1 whitespace-nowrap text-sm font-medium"
+                            style={{ color: active ? 'var(--lesson-ink)' : '#5b6776' }}
+                          >
+                            {step.title}
+                          </p>
+                          <div
+                            className="mt-2 h-[2px] rounded-full transition-all"
+                            style={{
+                              width: active ? '100%' : '24%',
+                              background: active ? 'var(--lesson-accent)' : '#d6ccbd',
+                            }}
+                          />
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ol>
               </div>
             </section>
 
-            <section className="mt-4 grid grid-cols-1 xl:grid-cols-12 gap-4">
-              <div className="xl:col-span-5 glass-card p-5" style={{ border: '1px solid rgba(42,169,255,0.2)' }}>
-                <p className="text-xs uppercase tracking-wider font-black" style={{ color: '#67D5FF' }}>
-                  <FileText size={12} className="inline mr-1" />
-                  {copy.visualTitle}
-                </p>
+            <AnimatePresence mode="wait">
+              {currentStep && (
+                <motion.article
+                  key={currentStep.step_id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -14 }}
+                  transition={{ duration: 0.35, ease: 'easeOut' }}
+                  className="mt-8 overflow-hidden rounded-[32px] border"
+                  style={{
+                    borderColor: 'var(--lesson-line)',
+                    background: 'var(--lesson-paper)',
+                    boxShadow: '0 16px 44px rgba(20, 30, 38, 0.07)',
+                  }}
+                >
+                  <section className="border-b px-6 py-8 md:px-12 md:py-10" style={{ borderColor: 'var(--lesson-line)' }}>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--lesson-muted)' }}>
+                      {copy.stepLabel} {activeStepIndex + 1} / {steps.length} · {STEP_LABELS[uiLanguage][currentStep.step_type]}
+                    </p>
+                    <h2 className="mt-3 text-3xl leading-tight md:text-4xl" style={{ fontFamily: 'var(--font-lesson-display)' }}>
+                      {currentStep.title}
+                    </h2>
+                    <p className="mt-2 text-sm" style={{ color: 'var(--lesson-muted)' }}>
+                      {copy.source}: p.{currentStep.page_from}-{currentStep.page_to}
+                    </p>
 
-                {currentVisual ? (
-                  <>
-                    <div className="mt-2 flex items-center gap-2 flex-wrap">
-                      <span className="text-[11px] font-black uppercase px-2.5 py-1 rounded-md" style={{ background: 'rgba(42,169,255,0.12)', border: '1px solid rgba(42,169,255,0.28)', color: '#67D5FF' }}>
-                        p.{currentVisual.page_from}-{currentVisual.page_to}
-                      </span>
-                      <span className="text-[11px] font-black uppercase px-2.5 py-1 rounded-md" style={{ background: 'rgba(123,63,228,0.12)', border: '1px solid rgba(123,63,228,0.24)', color: '#D8CCFF' }}>
-                        {currentVisual.visual_kind}
-                      </span>
-                    </div>
+                    <div className="mt-8 grid gap-8 lg:grid-cols-[1.14fr_0.86fr]">
+                      <figure>
+                        <div className="overflow-hidden rounded-2xl border" style={{ borderColor: 'var(--lesson-line)', background: '#f7f1e6' }}>
+                          {(isLoadingPdf || isRenderingPageImage) && (
+                            <div className="px-4 py-3 text-xs font-medium" style={{ color: 'var(--lesson-muted)' }}>
+                              <Loader2 size={12} className="mr-1 inline animate-spin" />
+                              {copy.sceneLoading}
+                            </div>
+                          )}
 
-                    <div className="mt-3 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(42,169,255,0.2)', background: '#0A1020' }}>
-                      {(isLoadingPdf || isRenderingPageImage) && (
-                        <div className="px-3 py-2 text-xs flex items-center gap-2" style={{ color: '#9AB1D2' }}>
-                          <Loader2 size={12} className="animate-spin" /> {copy.visualLoading}
-                        </div>
-                      )}
-
-                      {currentPageImage ? (
-                        <img
-                          src={currentPageImage}
-                          alt={`Lesson page ${currentVisualPage}`}
-                          className="w-full"
-                          style={{ maxHeight: '520px', objectFit: 'contain', background: '#0A1020' }}
-                        />
-                      ) : (
-                        <div className="p-5 text-center">
-                          {lesson?.pdf_path ? (
-                            <button
-                              onClick={() => void ensurePageImage(currentVisualPage)}
-                              className="px-4 py-2 rounded-lg text-sm font-bold"
-                              style={{ background: 'rgba(42,169,255,0.2)', border: '1px solid rgba(42,169,255,0.35)', color: '#67D5FF' }}
-                            >
-                              {copy.visualLoad}
-                            </button>
+                          {currentPageImage ? (
+                            <img
+                              src={currentPageImage}
+                              alt={`Lesson page ${currentVisualPage}`}
+                              className="w-full"
+                              style={{ maxHeight: '620px', objectFit: 'contain', background: '#f7f1e6' }}
+                            />
                           ) : (
-                            <p className="text-xs" style={{ color: '#9AB1D2' }}>
-                              Source PDF page is not attached for this lesson.
+                            <div className="flex min-h-[240px] items-center justify-center px-6 py-8 text-center">
+                              {lesson.pdf_path ? (
+                                <button
+                                  onClick={() => void ensurePageImage(currentVisualPage)}
+                                  className="rounded-full border px-4 py-2 text-sm font-semibold transition"
+                                  style={{ borderColor: 'var(--lesson-line)', color: 'var(--lesson-ink)' }}
+                                >
+                                  {copy.sceneLoad}
+                                </button>
+                              ) : (
+                                <p className="text-sm" style={{ color: 'var(--lesson-muted)' }}>{copy.sceneEmpty}</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {visualCaption && (
+                          <figcaption className="mt-3 text-sm" style={{ color: 'var(--lesson-muted)' }}>
+                            {visualCaption}
+                          </figcaption>
+                        )}
+                      </figure>
+
+                      <div className="space-y-5">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--lesson-muted)' }}>
+                            {copy.sceneTitle}
+                          </p>
+                          {visualImportance && (
+                            <p className="mt-2 text-base leading-7" style={{ color: '#334155' }}>
+                              {visualImportance}
                             </p>
                           )}
-                          {pageRenderError && (
-                            <p className="text-xs mt-2" style={{ color: '#FCA5A5' }}>{pageRenderError}</p>
-                          )}
                         </div>
-                      )}
-                    </div>
 
-                    {visualCaption && (
-                      <p className="text-sm font-semibold mt-3 text-white">{visualCaption}</p>
-                    )}
-                    {visualImportance && (
-                      <p className="text-sm mt-2 leading-7" style={{ color: '#D8ECFF' }}>{visualImportance}</p>
-                    )}
-
-                    {Array.isArray(visualFocusPoints) && visualFocusPoints.length > 0 && (
-                      <ul className="mt-3 space-y-1.5">
-                        {visualFocusPoints.map((item, idx) => (
-                          <li key={`focus-${idx}-${item.slice(0, 20)}`} className="text-xs" style={{ color: '#9AB1D2' }}>
-                            <Target size={11} className="inline mr-1" style={{ color: '#67D5FF' }} />
-                            {item}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-
-                    {currentVisual.page_excerpt && (
-                      <div className="mt-3 rounded-lg p-3" style={{ background: 'rgba(17,26,47,0.8)', border: '1px solid rgba(123,140,166,0.22)' }}>
-                        <p className="text-[11px] font-black uppercase tracking-wide" style={{ color: '#9AB1D2' }}>{copy.sourceFragment}</p>
-                        <p className="text-xs mt-2 leading-6" style={{ color: '#C8D4E8' }}>{currentVisual.page_excerpt}</p>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="mt-3 rounded-xl p-5 text-sm" style={{ background: 'rgba(17,26,47,0.8)', border: '1px solid rgba(123,140,166,0.2)', color: '#9AB1D2' }}>
-                    {copy.visualEmpty}
-                  </div>
-                )}
-              </div>
-
-              <div className="xl:col-span-7 glass-card p-5" style={{ border: '1px solid rgba(123,63,228,0.18)' }}>
-                {currentStep && (
-                  <>
-                    <div className="flex items-center justify-between gap-3 flex-wrap">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.16em] font-black" style={{ color: '#9AB1D2' }}>
-                          Step {activeStepIndex + 1}/{steps.length} · {STEP_LABELS[uiLanguage][currentStep.step_type]}
-                        </p>
-                        <h2 className="text-2xl font-black mt-1 text-white" style={{ fontFamily: 'Outfit, sans-serif' }}>{currentStep.title}</h2>
-                      </div>
-                    </div>
-
-                    <div className="mt-4">
-                      <p className="text-sm leading-7" style={{ color: '#D5E2F4' }}>{stepExplanationText}</p>
-                    </div>
-
-                    {stepNotesText && (
-                      <div className="mt-4 rounded-xl p-3" style={{ background: 'rgba(11,18,32,0.6)', border: '1px solid rgba(42,169,255,0.22)' }}>
-                        <p className="text-xs font-black uppercase tracking-wide" style={{ color: '#67D5FF' }}>{copy.whatToNotice}</p>
-                        <p className="text-sm mt-2" style={{ color: '#D8ECFF' }}>{stepNotesText}</p>
-                      </div>
-                    )}
-
-                    {stepPracticalText && (
-                      <div className="mt-4 rounded-xl p-3" style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.28)' }}>
-                        <p className="text-xs uppercase font-black" style={{ color: '#6EE7B7' }}>{copy.practicalUse}</p>
-                        <p className="text-sm mt-2" style={{ color: '#D4FBEA' }}>{stepPracticalText}</p>
-                      </div>
-                    )}
-
-                    {stepPageText && (
-                      <div className="mt-4 rounded-xl p-3" style={{ background: 'rgba(17,26,47,0.8)', border: '1px solid rgba(123,140,166,0.22)' }}>
-                        <p className="text-xs font-black uppercase tracking-wide" style={{ color: '#9AB1D2' }}>{copy.sourceFragment}</p>
-                        <p className="text-sm mt-2" style={{ color: '#C8D4E8' }}>{stepPageText}</p>
-                      </div>
-                    )}
-
-                    {alternateExplanation && (
-                      <div className="mt-4 rounded-xl p-4" style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.32)' }}>
-                        <p className="text-xs font-black uppercase tracking-wide" style={{ color: '#6EE7B7' }}>
-                          <Sparkles size={12} className="inline mr-1" /> {copy.altExplanation}
-                        </p>
-                        <p className="text-sm mt-2 leading-7" style={{ color: '#D4FBEA' }}>{alternateExplanation}</p>
-                      </div>
-                    )}
-
-                    {(currentStep.step_type === 'intro' || currentStep.step_type === 'concept' || currentStep.step_type === 'visual') && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
-                        <div className="rounded-xl p-3" style={{ background: 'rgba(11,18,32,0.55)', border: '1px solid rgba(123,63,228,0.22)' }}>
-                          <p className="text-xs uppercase font-black" style={{ color: '#C6ADFF' }}>{copy.keyComponents}</p>
-                          <ul className="mt-2 space-y-1.5">
-                            {keyPoints.slice(0, 6).map((item, idx) => (
-                              <li key={`k-${idx}-${item.slice(0, 20)}`} className="text-sm" style={{ color: '#D5E2F4' }}>
-                                <span className="font-black mr-2" style={{ color: '#A87BFF' }}>{idx + 1}.</span>
-                                {item}
+                        {Array.isArray(visualFocusPoints) && visualFocusPoints.length > 0 && (
+                          <ul className="space-y-2">
+                            {visualFocusPoints.map((point, idx) => (
+                              <li key={`focus-${idx}-${point.slice(0, 20)}`} className="text-sm leading-6" style={{ color: '#475569' }}>
+                                <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full" style={{ background: 'var(--lesson-accent)' }} />
+                                {point}
                               </li>
                             ))}
                           </ul>
-                        </div>
+                        )}
 
-                        <div className="rounded-xl p-3" style={{ background: 'rgba(11,18,32,0.55)', border: '1px solid rgba(42,169,255,0.22)' }}>
-                          <p className="text-xs uppercase font-black" style={{ color: '#67D5FF' }}>Glossary</p>
-                          <div className="mt-2 space-y-1.5">
-                            {glossary.slice(0, 6).map((item, idx) => (
-                              <div key={`g-${idx}-${item.term}`} className="text-sm" style={{ color: '#D5E2F4' }}>
-                                <span className="font-semibold text-white">{item.term}:</span> {item.definition}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                        {stepPageText && (
+                          <blockquote className="rounded-2xl border-l-4 px-4 py-3 text-sm leading-7" style={{ borderColor: 'var(--lesson-accent)', background: '#f5f8fb', color: '#3f4f63' }}>
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.15em]" style={{ color: '#64748b' }}>
+                              {copy.sourceFragment}
+                            </p>
+                            {stepPageText}
+                          </blockquote>
+                        )}
 
-                    {currentStep.step_type === 'practice' && (
-                      <div className="rounded-xl p-3 mt-4" style={{ background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.28)' }}>
-                        <p className="text-xs uppercase font-black" style={{ color: '#FCD34D' }}>{copy.quickRules}</p>
-                        <ul className="mt-2 space-y-1.5">
-                          {keyPoints.slice(0, 4).map((item, idx) => (
-                            <li key={`rule-${idx}-${item.slice(0, 20)}`} className="text-sm" style={{ color: '#FDE68A' }}>
-                              <Check size={12} className="inline mr-1" /> {item}
-                            </li>
-                          ))}
-                        </ul>
-                        {stepPracticalText && (
-                          <p className="text-sm mt-3" style={{ color: '#FDE68A' }}>{stepPracticalText}</p>
+                        {pageRenderError && (
+                          <p className="text-sm" style={{ color: 'var(--lesson-danger)' }}>
+                            {pageRenderError}
+                          </p>
                         )}
                       </div>
-                    )}
+                    </div>
+                  </section>
 
-                    {currentStep.step_type === 'mistakes' && (
-                      <div className="mt-4 rounded-xl p-4" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.26)' }}>
-                        <p className="text-xs uppercase font-black" style={{ color: '#FCA5A5' }}>{copy.commonMistakes}</p>
-                        <ul className="mt-2 space-y-1.5">
-                          {commonMistakes.slice(0, 8).map((item, idx) => (
-                            <li key={`mistake-${idx}-${item.slice(0, 20)}`} className="text-sm" style={{ color: '#FECACA' }}>
-                              <span className="font-black mr-2">{idx + 1}.</span>
+                  <section className="border-b px-6 py-8 md:px-12 md:py-10" style={{ borderColor: 'var(--lesson-line)' }}>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--lesson-muted)' }}>
+                      {copy.mentorExplanation}
+                    </p>
+                    <div className="mt-4 space-y-5 text-[17px] leading-8" style={{ color: '#253346' }}>
+                      {mentorParagraphs.map((paragraph, idx) => (
+                        <p key={`mentor-paragraph-${idx}-${paragraph.slice(0, 24)}`}>{paragraph}</p>
+                      ))}
+                    </div>
+
+                    {alternateExplanation && (
+                      <div className="mt-6 rounded-2xl border px-4 py-4" style={{ borderColor: '#bad9d3', background: '#ecf8f5' }}>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: '#0f766e' }}>
+                          <Sparkles size={12} className="mr-1 inline" />
+                          {copy.mentorAlternate}
+                        </p>
+                        <p className="mt-2 text-sm leading-7" style={{ color: '#134e48' }}>
+                          {alternateExplanation}
+                        </p>
+                      </div>
+                    )}
+                  </section>
+
+                  <section className="grid gap-8 border-b px-6 py-8 md:grid-cols-2 md:px-12 md:py-10" style={{ borderColor: 'var(--lesson-line)' }}>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--lesson-muted)' }}>
+                        {copy.notes}
+                      </p>
+                      {notePoints.length > 0 ? (
+                        <ul className="mt-3 space-y-2">
+                          {notePoints.map((item, idx) => (
+                            <li key={`note-${idx}-${item.slice(0, 20)}`} className="text-sm leading-7" style={{ color: '#334155' }}>
+                              <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full" style={{ background: 'var(--lesson-accent)' }} />
                               {item}
                             </li>
                           ))}
                         </ul>
-                      </div>
-                    )}
-
-                    {(currentStep.step_type === 'takeaway' || currentStep.step_type === 'next') && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
-                        <div className="rounded-xl p-3" style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.26)' }}>
-                          <p className="text-xs uppercase font-black" style={{ color: '#A5B4FC' }}>{copy.summary}</p>
-                          <p className="text-sm mt-2" style={{ color: '#D6DBFF' }}>{remember}</p>
-                        </div>
-
-                        <div className="rounded-xl p-3" style={{ background: 'rgba(14,165,233,0.1)', border: '1px solid rgba(14,165,233,0.26)' }}>
-                          <p className="text-xs uppercase font-black" style={{ color: '#7DD3FC' }}>{copy.selfCheck}</p>
-                          <ul className="mt-2 space-y-1.5">
-                            {selfCheck.slice(0, 4).map((item, idx) => (
-                              <li key={`self-${idx}-${item.slice(0, 20)}`} className="text-sm" style={{ color: '#D8F2FF' }}>
-                                <span className="font-black mr-2">{idx + 1}.</span>
-                                {item}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="mt-5 rounded-xl p-3" style={{ background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.24)' }}>
-                      <p className="text-xs uppercase font-black" style={{ color: '#FACC15' }}>{copy.homework}</p>
-                      <p className="text-sm mt-2" style={{ color: '#FDE68A' }}>{homework}</p>
+                      ) : (
+                        <p className="mt-3 text-sm leading-7" style={{ color: 'var(--lesson-muted)' }}>
+                          {uiLanguage === 'UZ'
+                            ? 'Bu qadamda asosiy e’tibor bozor konteksti va tasdiq signaliga qaratiladi.'
+                            : 'На этом шаге фокусируйтесь на контексте рынка и подтверждающем сигнале.'}
+                        </p>
+                      )}
                     </div>
 
-                    <div className="mt-5 rounded-xl p-4" style={{ background: 'rgba(11,18,32,0.6)', border: '1px solid rgba(123,140,166,0.26)' }}>
-                      <p className="text-xs uppercase font-black tracking-wide" style={{ color: '#B8C8DE' }}>{copy.quickReplies}</p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          onClick={handleUnderstood}
-                          className="px-4 py-2 rounded-lg text-sm font-bold text-white"
-                          style={{ background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)' }}
-                        >
-                          {copy.understood}
-                        </button>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--lesson-muted)' }}>
+                        {copy.practical}
+                      </p>
+                      {practicalPoints.length > 0 ? (
+                        <ol className="mt-3 space-y-2">
+                          {practicalPoints.map((item, idx) => (
+                            <li key={`practical-${idx}-${item.slice(0, 20)}`} className="flex gap-3 text-sm leading-7" style={{ color: '#334155' }}>
+                              <span className="mt-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold" style={{ background: '#e3f1ed', color: '#0f766e' }}>
+                                {idx + 1}
+                              </span>
+                              <span>{item}</span>
+                            </li>
+                          ))}
+                        </ol>
+                      ) : (
+                        <p className="mt-3 text-sm leading-7" style={{ color: '#334155' }}>
+                          {stepPracticalText || practical}
+                        </p>
+                      )}
+                    </div>
+                  </section>
 
-                        <button
-                          onClick={handleExplainDifferently}
-                          disabled={isReframing}
-                          className="px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-60"
-                          style={{ background: '#111A2F', border: '1px solid rgba(42,169,255,0.3)', color: '#67D5FF' }}
-                        >
-                          {isReframing ? <Loader2 size={14} className="inline mr-1 animate-spin" /> : null}
-                          {copy.explainAgain}
-                        </button>
-
-                        <button
-                          onClick={handleAskQuestion}
-                          className="px-4 py-2 rounded-lg text-sm font-bold"
-                          style={{ background: '#111A2F', border: '1px solid rgba(123,63,228,0.3)', color: '#D8CCFF' }}
-                        >
-                          <MessageCircle size={14} className="inline mr-1" /> {copy.askQuestion}
-                        </button>
-                      </div>
-
-                      <div className="mt-3 flex items-center justify-between gap-2 flex-wrap">
-                        <button
-                          onClick={goToPrevStep}
-                          disabled={activeStepIndex === 0}
-                          className="px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-40"
-                          style={{ background: '#111A2F', border: '1px solid rgba(123,140,166,0.25)', color: '#C8D4E8' }}
-                        >
-                          {copy.previousStep}
-                        </button>
-
-                        <button
-                          onClick={goToNextStep}
-                          disabled={activeStepIndex >= steps.length - 1}
-                          className="px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-40"
-                          style={{ background: 'rgba(123,63,228,0.2)', border: '1px solid rgba(123,63,228,0.35)', color: '#D8CCFF' }}
-                        >
-                          {copy.nextStep} <ChevronRight size={14} className="inline ml-1" />
-                        </button>
+                  <section className="grid gap-8 border-b px-6 py-8 md:grid-cols-2 md:px-12 md:py-10" style={{ borderColor: 'var(--lesson-line)' }}>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--lesson-muted)' }}>
+                        {copy.glossary}
+                      </p>
+                      <div className="mt-3 space-y-3">
+                        {glossary.slice(0, 6).map((item, idx) => (
+                          <p key={`glossary-${idx}-${item.term}`} className="text-sm leading-7" style={{ color: '#334155' }}>
+                            <span className="font-semibold" style={{ color: '#0f172a' }}>{item.term}:</span> {item.definition}
+                          </p>
+                        ))}
                       </div>
                     </div>
-                  </>
+
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--lesson-muted)' }}>
+                        {copy.mistakes}
+                      </p>
+                      <ul className="mt-3 space-y-2">
+                        {commonMistakes.slice(0, 6).map((item, idx) => (
+                          <li key={`mistake-${idx}-${item.slice(0, 18)}`} className="flex gap-3 text-sm leading-7" style={{ color: '#8b2c20' }}>
+                            <span className="mt-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold" style={{ background: '#fbe9e7', color: '#b42318' }}>
+                              {idx + 1}
+                            </span>
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </section>
+
+                  <section className="border-b px-6 py-8 md:px-12 md:py-10" style={{ borderColor: 'var(--lesson-line)' }}>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--lesson-muted)' }}>
+                      {copy.summary}
+                    </p>
+                    <p className="mt-3 text-base leading-8" style={{ color: '#334155' }}>
+                      {remember}
+                    </p>
+
+                    <div className="mt-6 grid gap-8 md:grid-cols-2">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--lesson-muted)' }}>
+                          {copy.selfCheck}
+                        </p>
+                        <ul className="mt-3 space-y-2">
+                          {selfCheck.slice(0, 4).map((question, idx) => (
+                            <li key={`self-check-${idx}-${question.slice(0, 18)}`} className="text-sm leading-7" style={{ color: '#334155' }}>
+                              <span className="mr-2 font-semibold" style={{ color: 'var(--lesson-accent)' }}>{idx + 1}.</span>
+                              {question}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--lesson-muted)' }}>
+                          {copy.homework}
+                        </p>
+                        <p className="mt-3 text-sm leading-7" style={{ color: '#334155' }}>
+                          {homework}
+                        </p>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="px-6 py-8 md:px-12 md:py-10">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--lesson-muted)' }}>
+                      {copy.quickActions}
+                    </p>
+
+                    <div className="mt-4 flex flex-wrap gap-2.5">
+                      <button
+                        onClick={handleUnderstood}
+                        className="rounded-full px-4 py-2 text-sm font-semibold text-white transition"
+                        style={{ background: 'linear-gradient(120deg, #0f766e, #1d9a8f)' }}
+                      >
+                        {copy.understood}
+                      </button>
+
+                      <button
+                        onClick={handleExplainDifferently}
+                        disabled={isReframing}
+                        className="rounded-full border px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+                        style={{ borderColor: 'var(--lesson-line)', color: 'var(--lesson-ink)' }}
+                      >
+                        {isReframing ? <Loader2 size={14} className="mr-1 inline animate-spin" /> : null}
+                        {copy.explainAgain}
+                      </button>
+
+                      <button
+                        onClick={handleAskQuestion}
+                        className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition"
+                        style={{ borderColor: 'var(--lesson-line)', color: 'var(--lesson-ink)' }}
+                      >
+                        <MessageCircleQuestion size={14} />
+                        {copy.askQuestion}
+                      </button>
+                    </div>
+
+                    <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                      <button
+                        onClick={goToPrevStep}
+                        disabled={activeStepIndex === 0}
+                        className="inline-flex items-center gap-1 rounded-full border px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45"
+                        style={{ borderColor: 'var(--lesson-line)', color: 'var(--lesson-ink)' }}
+                      >
+                        <ChevronLeft size={14} />
+                        {copy.prevStep}
+                      </button>
+
+                      <button
+                        onClick={goToNextStep}
+                        disabled={activeStepIndex >= steps.length - 1}
+                        className="inline-flex items-center gap-1 rounded-full border px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45"
+                        style={{ borderColor: 'var(--lesson-line)', color: 'var(--lesson-ink)' }}
+                      >
+                        {copy.nextStep}
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  </section>
+                </motion.article>
+              )}
+            </AnimatePresence>
+
+            <section
+              className="mt-10 rounded-[30px] border px-6 py-8 md:px-10 md:py-10"
+              style={{ borderColor: 'var(--lesson-line)', background: 'var(--lesson-paper)' }}
+            >
+              <h3 className="text-2xl md:text-3xl" style={{ fontFamily: 'var(--font-lesson-display)' }}>
+                {copy.quizTitle}
+              </h3>
+              <p className="mt-2 text-sm" style={{ color: 'var(--lesson-muted)' }}>
+                {copy.quizHint}
+              </p>
+
+              <div className="mt-6 space-y-4">
+                {quizItems.map((item, qIdx) => {
+                  const selected = quizAnswers[qIdx];
+                  const isAnswered = typeof selected === 'number';
+                  const isCorrect = isAnswered && selected === item.correct_index;
+
+                  return (
+                    <div
+                      key={`quiz-${qIdx}-${item.question.slice(0, 18)}`}
+                      className="rounded-2xl border px-4 py-4"
+                      style={{ borderColor: 'var(--lesson-line)', background: '#fffaf2' }}
+                    >
+                      <p className="text-base font-semibold" style={{ color: 'var(--lesson-ink)' }}>
+                        {qIdx + 1}. {item.question}
+                      </p>
+
+                      <div className="mt-3 space-y-2">
+                        {item.options.map((option, oIdx) => {
+                          const selectedThis = selected === oIdx;
+                          const correctOption = quizSubmitted && oIdx === item.correct_index;
+                          const wrongSelection = quizSubmitted && selectedThis && oIdx !== item.correct_index;
+
+                          const optionStyle: React.CSSProperties = correctOption
+                            ? { borderColor: '#86cbb9', background: '#e6f5f1', color: '#0f766e' }
+                            : wrongSelection
+                              ? { borderColor: '#efb4ad', background: '#fdeceb', color: '#b42318' }
+                              : selectedThis
+                                ? { borderColor: '#cfd8e3', background: '#eef3f9', color: '#334155' }
+                                : { borderColor: 'var(--lesson-line)', background: '#fffdf8', color: '#334155' };
+
+                          return (
+                            <button
+                              key={`quiz-${qIdx}-option-${oIdx}`}
+                              onClick={() => {
+                                if (quizSubmitted) return;
+                                setQuizAnswers((prev) => ({ ...prev, [qIdx]: oIdx }));
+                              }}
+                              className="w-full rounded-xl border px-3 py-2 text-left text-sm transition"
+                              style={optionStyle}
+                            >
+                              {option}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {quizSubmitted && (
+                        <p className="mt-2 text-xs leading-6" style={{ color: isCorrect ? '#0f766e' : '#b42318' }}>
+                          {item.explanation || (isCorrect ? 'Correct' : 'Review this question again')}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => setQuizSubmitted(true)}
+                  disabled={quizSubmitted || !canSubmitQuiz}
+                  className="rounded-full px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ background: 'linear-gradient(120deg, #0f766e, #1d9a8f)' }}
+                >
+                  {copy.checkResult}
+                </button>
+
+                <button
+                  onClick={() => {
+                    setQuizAnswers({});
+                    setQuizSubmitted(false);
+                  }}
+                  className="rounded-full border px-4 py-2 text-sm font-semibold"
+                  style={{ borderColor: 'var(--lesson-line)', color: 'var(--lesson-ink)' }}
+                >
+                  {copy.resetQuiz}
+                </button>
+
+                {quizSubmitted && typeof quizScore === 'number' ? (
+                  <p className="text-sm font-semibold" style={{ color: '#0f766e' }}>
+                    {copy.quizScore}: {quizScore}/{quizItems.length}
+                  </p>
+                ) : (
+                  <p className="text-xs" style={{ color: 'var(--lesson-muted)' }}>
+                    {copy.quizFillAll}
+                  </p>
                 )}
               </div>
             </section>
 
-            {currentStep?.step_type === 'quiz' && (
-              <section className="glass-card p-5 mt-4" style={{ border: '1px solid rgba(16,185,129,0.24)' }}>
-                <p className="text-xs uppercase font-black tracking-wide" style={{ color: '#34D399' }}>{copy.quizTitle}</p>
-                <p className="text-sm mt-1" style={{ color: '#9DECCB' }}>{copy.quizHint}</p>
-
-                <div className="mt-4 space-y-4">
-                  {quizItems.map((item, qIdx) => {
-                    const selected = quizAnswers[qIdx];
-                    const isAnswered = typeof selected === 'number';
-                    const isCorrect = isAnswered && selected === item.correct_index;
-
-                    return (
-                      <div key={`quiz-${qIdx}-${item.question.slice(0, 20)}`} className="rounded-xl p-4" style={{ background: 'rgba(11,18,32,0.58)', border: '1px solid rgba(16,185,129,0.2)' }}>
-                        <p className="text-sm font-semibold text-white">{qIdx + 1}. {item.question}</p>
-                        <div className="mt-3 space-y-2">
-                          {item.options.map((option, oIdx) => {
-                            const selectedThis = selected === oIdx;
-                            const correctOption = quizSubmitted && oIdx === item.correct_index;
-                            const wrongSelection = quizSubmitted && selectedThis && oIdx !== item.correct_index;
-
-                            return (
-                              <button
-                                key={`quiz-${qIdx}-opt-${oIdx}`}
-                                onClick={() => {
-                                  if (quizSubmitted) return;
-                                  setQuizAnswers((prev) => ({ ...prev, [qIdx]: oIdx }));
-                                }}
-                                className="w-full text-left rounded-md px-3 py-2 text-sm transition-all"
-                                style={correctOption
-                                  ? { background: 'rgba(16,185,129,0.2)', border: '1px solid rgba(16,185,129,0.45)', color: '#6EE7B7' }
-                                  : wrongSelection
-                                    ? { background: 'rgba(239,68,68,0.16)', border: '1px solid rgba(239,68,68,0.45)', color: '#FCA5A5' }
-                                    : selectedThis
-                                      ? { background: 'rgba(123,63,228,0.2)', border: '1px solid rgba(123,63,228,0.45)', color: '#D8CCFF' }
-                                      : { background: '#111A2F', border: '1px solid rgba(123,140,166,0.25)', color: '#D5E2F4' }}
-                              >
-                                {option}
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        {quizSubmitted && (
-                          <p className="text-xs mt-2" style={{ color: isCorrect ? '#6EE7B7' : '#FECACA' }}>
-                            {item.explanation || (isCorrect ? 'Correct' : 'Review this question again')}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="mt-4 flex items-center gap-2 flex-wrap">
-                  <button
-                    onClick={() => setQuizSubmitted(true)}
-                    disabled={quizSubmitted || Object.keys(quizAnswers).length < quizItems.length}
-                    className="px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50"
-                    style={{ background: 'linear-gradient(135deg, #10B981, #059669)', color: '#ECFDF5' }}
-                  >
-                    {copy.checkResult}
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setQuizAnswers({});
-                      setQuizSubmitted(false);
-                    }}
-                    className="px-4 py-2 rounded-lg text-sm font-bold"
-                    style={{ background: '#111A2F', border: '1px solid rgba(123,140,166,0.25)', color: '#C8D4E8' }}
-                  >
-                    {copy.resetQuiz}
-                  </button>
-
-                  {quizSubmitted && typeof quizScore === 'number' && (
-                    <p className="text-sm font-bold" style={{ color: '#6EE7B7' }}>
-                      {copy.score}: {quizScore}/{quizItems.length}
-                    </p>
-                  )}
-                </div>
-              </section>
-            )}
-
             {(currentStep?.step_type === 'next' || activeStepIndex === steps.length - 1) && (
-              <section className="glass-card p-5 mt-4" style={{ border: '1px solid rgba(123,63,228,0.24)' }}>
-                <p className="text-xs uppercase font-black tracking-wide" style={{ color: '#D8CCFF' }}>{copy.completeBeforeNext}</p>
-                <div className="mt-3 flex items-center gap-2 flex-wrap">
+              <section
+                className="mt-8 rounded-[30px] border px-6 py-7 md:px-10 md:py-8"
+                style={{ borderColor: 'var(--lesson-line)', background: 'var(--lesson-paper)' }}
+              >
+                <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--lesson-muted)' }}>
+                  {copy.nextBlockTitle}
+                </p>
+
+                <div className="mt-4 flex flex-wrap items-center gap-3">
                   <button
                     onClick={markLessonCompleted}
                     disabled={lesson.is_completed || isCompleting}
-                    className="px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50"
-                    style={{ background: 'rgba(16,185,129,0.14)', border: '1px solid rgba(16,185,129,0.36)', color: '#6EE7B7' }}
+                    className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+                    style={{
+                      background: lesson.is_completed ? '#e0f2e9' : '#d9efe9',
+                      color: lesson.is_completed ? '#0f5d46' : '#0f766e',
+                    }}
                   >
-                    {isCompleting ? <Loader2 size={14} className="inline mr-1 animate-spin" /> : <CheckCircle2 size={14} className="inline mr-1" />}
+                    {isCompleting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
                     {lesson.is_completed ? copy.completed : copy.markComplete}
                   </button>
 
                   {lesson.next_lesson_id ? (
                     <button
                       onClick={() => router.push(`/dashboard/lessons/${lesson.next_lesson_id}`)}
-                      className="px-4 py-2 rounded-lg text-sm font-bold text-white"
-                      style={{ background: 'linear-gradient(135deg, #7B3FE4, #2AA9FF)' }}
+                      className="inline-flex items-center gap-1 rounded-full px-4 py-2 text-sm font-semibold text-white"
+                      style={{ background: 'linear-gradient(120deg, #0f766e, #1d9a8f)' }}
                     >
-                      {copy.nextLesson} <ChevronRight size={14} className="inline ml-1" />
+                      {copy.nextLesson}
+                      <ChevronRight size={14} />
                     </button>
                   ) : (
-                    <p className="text-sm" style={{ color: '#9AB1D2' }}>{copy.noNextLesson}</p>
+                    <p className="text-sm" style={{ color: 'var(--lesson-muted)' }}>
+                      {copy.noNextLesson}
+                    </p>
                   )}
                 </div>
               </section>
             )}
 
+            <div className="mt-8 text-center text-xs" style={{ color: '#7a8797' }}>
+              {firstName} · TradeMentor AI
+            </div>
           </>
         )}
       </main>
